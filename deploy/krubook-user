@@ -3,4 +3,4 @@
 # production settings. Example: sudo krubook-user add you@example.com "Your Name"
 set -euo pipefail
 cd /opt/krubook/app
-exec sudo -u krubook env $(grep -v '^#' /etc/krubook/env | xargs) node_modules/.bin/tsx server/user-cli.ts "$@"
+exec sudo -u krubook env NODE_NO_WARNINGS=1 $(grep -v '^#' /etc/krubook/env | xargs) node_modules/.bin/tsx server/user-cli.ts "$@"

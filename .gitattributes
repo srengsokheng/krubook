@@ -3,3 +3,4 @@
 *.timer text eol=lf
 Caddyfile text eol=lf
 *.yml text eol=lf
+deploy/krubook-user text eol=lf
