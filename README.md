@@ -1,0 +1,124 @@
+# KruBook · សៀវភៅគ្រូ
+
+A teaching management system that replaces the Excel workbook: courses and curriculum, terms and
+classes, an automatic term-plan generator, a weekly timetable, teaching progress, rosters,
+attendance, a spreadsheet-style gradebook, teaching hours and pay, exports and backups.
+Everything that Excel used to calculate by hand (dates, Lecture/Practice, progress, totals,
+pass/fail, attendance scores, pay) is calculated from recorded data.
+
+## Run it
+
+Requires Node.js 22.13 or newer (it uses the built-in `node:sqlite`, so there are no native modules).
+
+```bash
+npm install
+npm run seed      # optional: demo data in data/demo.sqlite
+npm run build
+npm run demo      # serves the demo database on http://localhost:4310
+```
+
+Demo sign-in: `teacher@krubook.test` / `krubook-demo` (demo data only).
+
+For your own data, `npm run build && npm start` uses `data/krubook.sqlite`. The first visit asks
+you to create the administrator account, and Cambodian public holidays for 2026–27 are added.
+
+Development with hot reload: `npm run dev` (API on :4310, Vite on :5173), or `npm run dev:demo`.
+
+| Command | What it does |
+|---|---|
+| `npm test` | 53 tests: scheduling, gradebook rules, attendance, API workflows, exports, backup/restore, offline queue |
+| `npm run typecheck` | TypeScript check of server, shared logic and web app |
+| `npm run seed` | Writes demo data to `data/demo.sqlite` (refuses a database that already has users) |
+
+Environment: `KRUBOOK_DB` (database file), `PORT` (default 4310), `KRUBOOK_TODAY` (pins “today”, for tests and demos).
+
+## Architecture
+
+```
+shared/     Pure domain logic used by both server and browser (no duplicated rules)
+  dates.ts      ISO dates via day numbers: no host time-zone or DST drift; Asia/Phnom_Penh "today"
+  schedule.ts   term-plan generator, Lecture/Practice rule, re-plan proposals, double-booking
+  grades.ts     configuration checks, score parsing (incl. Khmer digits), totals, pass/fail, at-risk
+  progress.ts   ahead / on schedule / behind, with the reason
+  pay.ts        rate resolution and monthly pay
+  holidays.ts   starting Cambodian holiday calendar
+server/     Express 5 + SQLite (node:sqlite)
+  schema.ts     migrations, constraints and integrity triggers
+  services/     plan, records (gradebook, attendance, sync), roster/import, reports, exports, backup
+  routes.ts     JSON API under /api, every query scoped to the signed-in teacher
+web/        React 19 + Vite PWA
+  src/offline.ts  IndexedDB queue for attendance and grade edits, with conflict handling
+  public/sw.js    service worker: offline app shell, last-known API data
+tests/      Vitest
+```
+
+### Data model
+
+Users → courses → lessons → lesson parts → materials; courses also have a week-by-week template.
+Terms hold dates, exam windows and term-only holidays. Classes belong to a term and course, with
+their own start date, meeting times and optional Lecture/Practice rule. Sessions are real dated
+rows generated from those (`gen_key` makes generation repeatable without duplicates). Teaching
+records (one per session, with the parts covered fully or partially) are the source of “actual”
+progress. Students have enrollments, so a transfer ends one enrollment and starts another; grades
+(`scores`) and `attendance` belong to the enrollment, never to the student directly. Grade configs
+and components per class; rates, adjustments and payments for pay; `audit_log` for history.
+
+Rules enforced in the database itself (triggers and constraints), not only the API:
+
+- a score can never exceed its component maximum, or belong to another class’s component;
+- a grading setup cannot be activated or finalized unless its maximums equal the target total (e.g. midterm 25 → 105 is refused);
+- a finalized gradebook cannot be changed; lowering a maximum below existing scores is refused;
+- attendance must reference a session of the same class that was not cancelled, moved or skipped;
+- completed sessions, and sessions with attendance, cannot be deleted; one active enrollment per student per class.
+
+### Scheduling
+
+- Week 1 starts on the Monday of the class’s first day; each class has its own calendar.
+- The rule labels the 1st, 2nd… *eligible* meeting of each week (default Lecture then Practice), or uses a weekday map. Holidays are not eligible, so after a Monday holiday the Wednesday becomes the Lecture. Manual overrides win and are kept.
+- Lesson weeks take the next curriculum part; Practice practises the preceding Lecture’s part. Exam windows on the term become exam sessions; LAB checkpoints sit on the week’s practice.
+- Cancelling, moving, adding a make-up, recording an early finish or a partial lesson, adding a holiday or changing the rule never rewrites the plan directly. It produces a **proposal** that lists every affected session, which lessons change date (old → new) and any overflow. Nothing changes until the teacher applies it, and completed or confirmed sessions are never touched. A proposal goes stale if the schedule changed after it was made.
+- The original plan (`original_date`, `original_part_id`), the current approved plan, and what was actually taught (teaching records) are kept apart.
+
+### Offline
+
+The service worker caches the app and the last response for every page the teacher opened.
+Attendance and grade edits go into an IndexedDB queue keyed by cell, carrying the version the
+teacher last saw. On reconnect they are sent to `/api/sync`; if someone changed the same cell in the
+meantime, the edit is shown as a conflict with “Keep saved” / “Use mine”. Rejected edits are
+listed, never dropped. Verified by stopping the server, taking attendance, restarting it and
+resolving the resulting conflict in the browser, plus `tests/offline.test.ts`.
+
+## Exports and printing
+
+Excel exports (gradebook, term plan, attendance, student list, payment report) keep real types:
+dates are Excel dates, scores are numbers, and student IDs are text so leading zeros survive. Each
+has class/term/export-date metadata, a frozen header and repeating print titles.
+
+PDF: every class has print views (`/print/gradebook/:id`, `plan`, `attendance`, `roster`) laid
+out for A4 landscape with repeating table headers. Use **Print or save as PDF**. The browser shapes
+Khmer text with the bundled Kantumruy Pro font. A server-side PDF library was avoided on purpose:
+none of the common ones shape Khmer script correctly.
+
+## Backup and restore
+
+**Settings → Backup** (administrator only):
+
+- `.json`: the full backup. `{ format: "krubook-backup", schemaVersion, exportedAt, counts, checksum, tables }`. `checksum` is the SHA-256 of `JSON.stringify(tables)`. It contains every table except login sessions, including password hashes, so keep it private.
+- `.xlsx`: a readable copy, one sheet per table. It cannot be restored from.
+
+Restore procedure:
+
+1. Settings → Backup → choose the `.json` file.
+2. KruBook validates it without touching your data. It checks the format, schema version and checksum, then loads every row into a separate in-memory database with all constraints and triggers on. It also checks each table’s row count and runs `foreign_key_check` and `integrity_check`. Any failure is reported and nothing changes.
+3. Confirm. The live database file is renamed to `krubook.sqlite.before-restore-<time>` and the validated copy takes its place. Sign in again.
+
+To undo a restore, stop the server and rename the `before-restore` file back.
+
+## Known limits
+
+- Reminders are sent through Telegram (bot token + chat ID). Email is not implemented.
+- The Khmer interface covers navigation, headings, statuses and common actions; longer help text is English.
+- Lunar holidays for 2026 are estimates marked “check”; confirm them against the official royal decree in Settings → Holidays. Fixed-date holidays are seeded for 2026 and 2027.
+- One school per installation. Role-based scoping (admin / teacher) is in place for adding teachers, but there is no user-management screen yet; extra users can only be created with `createUser` in `server/auth.ts`.
+- Offline editing covers attendance and grades only, and only for pages opened on that device while online.
+- Not built (future): student portal, QR check-in, lab submissions, announcements, multi-school.

@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "krubook-demo", "runtimeExecutable": "npm", "runtimeArgs": ["run", "demo"], "port": 4310 }
+  ]
+}

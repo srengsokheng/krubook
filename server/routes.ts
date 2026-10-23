@@ -329,7 +329,7 @@ export function buildRouter(holder: DBHolder): Router {
     const c = ownClass(db, u, num(req.params.id, 'class'));
     const course = db.get('SELECT * FROM courses WHERE id = ?', c.course_id)!;
     return {
-      ...c, course, term: db.get('SELECT * FROM terms WHERE id = ?', c.term_id),
+      ...c, course, term: db.get('SELECT * FROM terms WHERE id = ?', c.term_id), today: today(db, u),
       rule: plan.classRule(c, course), ruleIsCustom: !!c.session_rule,
       meetings: db.all('SELECT * FROM meetings WHERE class_id = ? ORDER BY weekday, start_time', c.id),
       parts: plan.orderedParts(db, c.course_id),

@@ -150,7 +150,7 @@ export function computeStudent(cfg: GradeConfig, scores: Record<number, number |
     riskReason = complete ? `Total ${total} is below the pass mark of ${cfg.passMark}.` : `Cannot reach ${cfg.passMark} even with full marks on the remaining components.`;
   } else if (!complete && gradedMax > 0 && total / gradedMax < cfg.passMark / cfg.targetTotal) {
     atRisk = true;
-    riskReason = `Scoring ${Math.round((total / gradedMax) * 100)}% so far; the pass mark needs ${Math.round((cfg.passMark / cfg.targetTotal) * 100)}%.`;
+    riskReason = `Scoring ${Math.floor((total / gradedMax) * 100)}% so far; the pass mark needs ${Math.round((cfg.passMark / cfg.targetTotal) * 100)}%.`;
   }
   const label = result === 'pass' ? cfg.labelPass : result === 'fail' ? cfg.labelFail : '';
   return { values, total, gradedMax, missing, complete, result, label, atRisk, riskReason };

@@ -1,0 +1,14 @@
+{
+  "name": "KruBook",
+  "short_name": "KruBook",
+  "description": "Teaching management: term plans, timetable, attendance, gradebook and pay.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f2f4f7",
+  "theme_color": "#161d2e",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
