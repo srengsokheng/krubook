@@ -8,6 +8,7 @@ import ExcelJS from 'exceljs';
 import { createApp, createHolder } from '../server/app.ts';
 import { seedDemo, DEMO_LOGIN } from '../server/seed.ts';
 import type { DBHolder } from '../server/routes.ts';
+import { addAccount, setPassword } from '../server/auth.ts';
 
 process.env.KRUBOOK_TODAY = '2026-10-24';
 
@@ -286,29 +287,44 @@ describe('reports, exports and backup', () => {
   });
 });
 
-describe('claiming imported data', () => {
-  it('the first setup claims the unclaimed owner and its classes, and needs the setup code', async () => {
+describe('accounts', () => {
+  it('has no public sign-up in production', async () => {
+    const dir2 = mkdtempSync(join(tmpdir(), 'krubook-signup-'));
+    const h = createHolder(join(dir2, 'empty.sqlite'));
+    const s = createApp(h).listen(0);
+    const url = `http://127.0.0.1:${(s.address() as AddressInfo).port}/api`;
+    const env = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      expect(await (await fetch(`${url}/auth/me`)).json()).toMatchObject({ needsSetup: false });
+      const r = await fetch(`${url}/auth/setup`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'x@example.test', name: 'X', password: 'long-enough-1' }) });
+      expect(r.status).toBe(403);
+      expect(h.db.all('SELECT id FROM users')).toHaveLength(0);
+    } finally {
+      process.env.NODE_ENV = env;
+      s.close(); h.db.close(); rmSync(dir2, { recursive: true, force: true });
+    }
+  });
+
+  it('a server-created account claims imported data, and the placeholder password never signs in', async () => {
     const dir2 = mkdtempSync(join(tmpdir(), 'krubook-claim-'));
     const h = createHolder(join(dir2, 'claim.sqlite'));
     const owner = h.db.run("INSERT INTO users (email, name, password_hash, role) VALUES ('owner@krubook.local', 'Teacher', '!', 'admin')").id;
     h.db.run("INSERT INTO courses (owner_id, code, name) VALUES (?, 'CPP', 'C++')", owner);
     const s = createApp(h).listen(0);
     const url = `http://127.0.0.1:${(s.address() as AddressInfo).port}/api`;
-    process.env.KRUBOOK_SETUP_TOKEN = 'code-123';
     try {
-      const me = await (await fetch(`${url}/auth/me`)).json();
-      expect(me).toMatchObject({ needsSetup: true, setupCode: true });
-      const body = { email: 'me@example.test', name: 'Me', password: 'long-enough-1' };
-      expect((await fetch(`${url}/auth/setup`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...body, setupToken: 'wrong' }) })).status).toBe(403);
-      expect((await fetch(`${url}/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@krubook.local', password: '!' }) })).status).toBe(401);
-      const r = await fetch(`${url}/auth/setup`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...body, setupToken: 'code-123' }) });
+      const post = (path: string, body: unknown) => fetch(`${url}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      expect((await post('/auth/login', { email: 'owner@krubook.local', password: '!' })).status).toBe(401);
+      expect(addAccount(h.db, 'me@example.test', 'Me', 'long-enough-1')).toBe(owner);
+      expect(() => addAccount(h.db, 'me@example.test', 'Me', 'long-enough-1')).toThrow(/already exists/);
+      const r = await post('/auth/login', { email: 'me@example.test', password: 'long-enough-1' });
       expect(r.status).toBe(200);
-      const c = r.headers.get('set-cookie')!.split(';')[0];
-      const courses = await (await fetch(`${url}/courses`, { headers: { cookie: c } })).json();
+      const courses = await (await fetch(`${url}/courses`, { headers: { cookie: r.headers.get('set-cookie')!.split(';')[0] } })).json();
       expect(courses.map((x: any) => x.code)).toEqual(['CPP']);
-      expect(h.db.all('SELECT id FROM users')).toHaveLength(1);
+      setPassword(h.db, 'me@example.test', 'another-pass-2');
+      expect((await post('/auth/login', { email: 'me@example.test', password: 'long-enough-1' })).status).toBe(401);
     } finally {
-      delete process.env.KRUBOOK_SETUP_TOKEN;
       s.close(); h.db.close(); rmSync(dir2, { recursive: true, force: true });
     }
   });

@@ -43,7 +43,6 @@ if [ ! -f /etc/krubook/env ]; then
 NODE_ENV=production
 PORT=4310
 KRUBOOK_DB=/var/lib/krubook/krubook.sqlite
-KRUBOOK_SETUP_TOKEN=$(head -c 18 /dev/urandom | base64 | tr -d '/+=' | cut -c1-20)
 ENV
   chmod 640 /etc/krubook/env && chown root:krubook /etc/krubook/env
 fi
@@ -69,4 +68,6 @@ systemctl daemon-reload
 systemctl enable --now nginx krubook-backup.timer krubook-certs.timer certbot.timer >/dev/null
 systemctl enable krubook >/dev/null
 bash /tmp/krubook-deploy/krubook-certs.sh
-echo "Provisioned. Setup code: $(grep KRUBOOK_SETUP_TOKEN /etc/krubook/env | cut -d= -f2)"
+sed -i '/^KRUBOOK_SETUP_TOKEN=/d' /etc/krubook/env   # sign-up codes are no longer used
+install -m 755 /tmp/krubook-deploy/krubook-user /usr/local/bin/krubook-user
+echo "Provisioned. Create an account with: sudo krubook-user add <email> <name>"

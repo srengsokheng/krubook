@@ -19,8 +19,9 @@ npm run demo      # serves the demo database on http://localhost:4310
 
 Demo sign-in: `teacher@krubook.test` / `krubook-demo` (demo data only).
 
-For your own data, `npm run build && npm start` uses `data/krubook.sqlite`. The first visit asks
-you to create the administrator account, and Cambodian public holidays for 2026–27 are added.
+For your own data, `npm run build && npm start` uses `data/krubook.sqlite`. In production there is
+no sign-up page: create accounts with `npx tsx server/user-cli.ts add <email> <name>` (on the
+server, `sudo krubook-user add …`). Outside production the first visit offers a first-run form.
 
 Development with hot reload: `npm run dev` (API on :4310, Vite on :5173), or `npm run dev:demo`.
 
@@ -137,7 +138,8 @@ Provisioning takes both names: `KRUBOOK_DOMAIN=setecattendance.online KRUBOOK_HO
 | App | `/opt/krubook/app`, systemd unit `krubook` (user `krubook`, port 4310, 350 MB memory cap) |
 | HTTPS | nginx (`/etc/nginx/sites-available/krubook`, generated) + certbot. `krubook-certs.timer` runs `deploy/krubook-certs.sh` every 15 min: it requests a certificate for any name in `/etc/krubook/domains` that points at the server and rewrites the nginx site. `certbot.timer` renews; a deploy hook reloads nginx |
 | Database | `/var/lib/krubook/krubook.sqlite` |
-| Settings and secrets | `/etc/krubook/env`, including `KRUBOOK_SETUP_TOKEN`, the code needed to create the first account |
+| Settings and secrets | `/etc/krubook/env` |
+| Accounts | No public sign-up. On the server: `sudo krubook-user add <email> <name>`, `sudo krubook-user passwd <email>`, `sudo krubook-user list` (passwords are typed at a hidden prompt) |
 | Backups | daily at 02:30, `/var/backups/krubook/*.sqlite.gz`, kept 14 days (`krubook-backup.timer`) |
 | Firewall | ufw: 22, 80, 443 only |
 
@@ -168,4 +170,4 @@ roster and score, and a teaching record for each week marked Completed. The Atte
 Activity points are imported as manual values, because the workbook has no roll calls. It also
 lists the lesson files in `cpp/lessonNN` and `nodejs/lessonNN` as ready materials. The workbook has no student IDs,
 so students get placeholder IDs such as `ASL3-07`. Edit them on each student's page. The data
-belongs to an unclaimed account; the first setup, using the server's setup code, claims it.
+belongs to an unclaimed account; the first account created with `krubook-user add` claims it.

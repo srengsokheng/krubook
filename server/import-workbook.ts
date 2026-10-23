@@ -7,8 +7,8 @@
 // "Gradebook - <class>" sheet (maximums, pass mark, students, scores). Lesson materials are
 // listed from <materials>/cpp/lessonNN and <materials>/nodejs/lessonNN when that folder is given.
 //
-// The data is owned by an unclaimed account; the first person to complete setup (with the
-// server's setup code) claims it. Everything that could not be mapped is printed at the end.
+// The data is owned by an unclaimed account; the first account created with `krubook-user add`
+// claims it. Everything that could not be mapped is printed at the end.
 import ExcelJS from 'exceljs';
 import { existsSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';

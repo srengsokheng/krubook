@@ -1,6 +1,7 @@
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
 import { AppError, type DB } from './db.ts';
+import { cambodianHolidays } from '../shared/holidays.ts';
 
 export interface User {
   id: number;
@@ -37,6 +38,30 @@ export function verifyPassword(password: string, stored: string): boolean {
 export function createUser(db: DB, email: string, name: string, password: string, role: User['role'] = 'teacher'): number {
   if (password.length < 8) throw new AppError(422, 'Use a password of at least 8 characters.');
   return db.run('INSERT INTO users (email, name, password_hash, role) VALUES (?,?,?,?)', email.trim(), name.trim(), hashPassword(password), role).id;
+}
+
+/**
+ * Creates an administrator account. If imported data is waiting for an owner (an account whose
+ * password is '!'), the new login takes over that account and its classes instead.
+ */
+export function addAccount(db: DB, email: string, name: string, password: string): number {
+  if (password.length < 8) throw new AppError(422, 'Use a password of at least 8 characters.');
+  if (db.get('SELECT 1 FROM users WHERE email = ?', email.trim())) throw new AppError(409, 'An account with this email already exists.');
+  const unclaimed = db.get<{ id: number }>("SELECT id FROM users WHERE password_hash = '!' ORDER BY id LIMIT 1");
+  if (unclaimed) {
+    db.run("UPDATE users SET email = ?, name = ?, password_hash = ?, role = 'admin' WHERE id = ?", email.trim(), name.trim(), hashPassword(password), unclaimed.id);
+    return unclaimed.id;
+  }
+  const id = createUser(db, email, name, password, 'admin');
+  for (const h of cambodianHolidays()) db.run("INSERT OR IGNORE INTO holidays (owner_id, date, name, name_km, source, approx) VALUES (?,?,?,?,'national',?)", id, h.date, h.name, h.nameKm, h.approx ? 1 : 0);
+  return id;
+}
+
+export function setPassword(db: DB, email: string, password: string) {
+  if (password.length < 8) throw new AppError(422, 'Use a password of at least 8 characters.');
+  const r = db.run('UPDATE users SET password_hash = ? WHERE email = ?', hashPassword(password), email.trim());
+  if (!r.changes) throw new AppError(404, `No account with the email ${email}.`);
+  db.run('DELETE FROM auth_sessions WHERE user_id = (SELECT id FROM users WHERE email = ?)', email.trim());
 }
 
 function readCookie(req: Request, name: string): string | null {
