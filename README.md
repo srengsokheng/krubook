@@ -151,3 +151,19 @@ used only for deploys; the `krubook` user can only restart its own service), `DE
 Useful commands on the server: `journalctl -u krubook -f`, `systemctl restart krubook`,
 `systemctl start krubook-backup`. To restore a nightly backup: `systemctl stop krubook`, then
 `gunzip` the file over `/var/lib/krubook/krubook.sqlite` (owned by `krubook`), then `systemctl start krubook`.
+
+## Importing the old workbook
+
+`server/import-workbook.ts` reads `Teaching_Schedule_and_Progress.xlsx` into a new database file:
+
+```bash
+npx tsx server/import-workbook.ts "D:/Work/Teaching/Teaching_Schedule_and_Progress.xlsx" --db data/krubook-import.sqlite --materials "D:/Work/Teaching"
+```
+
+It creates one term per intake (each with its own exam windows), the C++ and WBD I curricula and
+19-week templates taken from the term-plan sheets, meeting times from the Weekly Schedule, every
+roster and score, and a teaching record for each week marked Completed. The Attendance + Class
+Activity points are imported as manual values, because the workbook has no roll calls. It also
+lists the lesson files in `cpp/lessonNN` and `nodejs/lessonNN` as ready materials. The workbook has no student IDs,
+so students get placeholder IDs such as `ASL3-07`. Edit them on each student's page. The data
+belongs to an unclaimed account; the first setup, using the server's setup code, claims it.
