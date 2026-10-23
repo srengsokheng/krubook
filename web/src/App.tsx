@@ -33,9 +33,10 @@ export function App() {
 function Gate() {
   const [me, setMe] = useState<Me | null | undefined>(undefined);
   const [needsSetup, setNeedsSetup] = useState(false);
+  const [setupCode, setSetupCode] = useState(false);
   const { setOverrides } = useI18n();
   useEffect(() => {
-    api('/auth/me').then((r) => { setMe(r.user); setNeedsSetup(r.needsSetup); }).catch(() => {
+    api('/auth/me').then((r) => { setMe(r.user); setNeedsSetup(r.needsSetup); setSetupCode(r.setupCode); }).catch(() => {
       // Offline at start-up: trust the last signed-in user so cached pages and the queue work.
       try { const saved = localStorage.getItem('krubook.me'); setMe(saved ? JSON.parse(saved) : null); } catch { setMe(null); }
     });
@@ -48,7 +49,7 @@ function Gate() {
     if (me) api('/settings').then((s) => setOverrides(s.statusLabels ?? {})).catch(() => {});
   }, [me, setOverrides]);
   if (me === undefined) return <div className="main"><Loading /></div>;
-  if (!me) return <Login needsSetup={needsSetup} onSignedIn={setMe} />;
+  if (!me) return <Login needsSetup={needsSetup} setupCode={setupCode} onSignedIn={setMe} />;
   return (
     <Routes>
       <Route path="/print/*" element={<PrintView />} />

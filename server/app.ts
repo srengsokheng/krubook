@@ -20,6 +20,8 @@ export function createHolder(file: string): DBHolder {
 export function createApp(holder: DBHolder, opts: { staticDir?: string } = {}) {
   const app = express();
   app.disable('x-powered-by');
+  // Behind Caddy on the same machine: trust its X-Forwarded-* headers for HTTPS and client IP.
+  app.set('trust proxy', 'loopback');
   app.use(express.json({ limit: '200mb' }));
   app.use((req, res, next) => authenticate(holder.db)(req, res, next));
   app.use('/api', (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });

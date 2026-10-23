@@ -1,0 +1,20 @@
+[Unit]
+Description=KruBook teaching management
+After=network.target
+
+[Service]
+User=krubook
+Group=krubook
+WorkingDirectory=/opt/krubook/app
+EnvironmentFile=/etc/krubook/env
+ExecStart=/opt/krubook/app/node_modules/.bin/tsx server/index.ts
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/krubook
+PrivateTmp=true
+MemoryMax=350M
+
+[Install]
+WantedBy=multi-user.target

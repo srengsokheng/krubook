@@ -1,0 +1,14 @@
+__HOST__ {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:4310
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy same-origin
+	}
+}
+
+# Plain IP address: send visitors to the HTTPS name.
+http:// {
+	redir https://__HOST__{uri} permanent
+}

@@ -122,3 +122,32 @@ To undo a restore, stop the server and rename the `before-restore` file back.
 - One school per installation. Role-based scoping (admin / teacher) is in place for adding teachers, but there is no user-management screen yet; extra users can only be created with `createUser` in `server/auth.ts`.
 - Offline editing covers attendance and grades only, and only for pages opened on that device while online.
 - Not built (future): student portal, QR check-in, lab submissions, announcements, multi-school.
+
+## Production and CI/CD
+
+Live at **https://159-89-199-180.sslip.io** (DigitalOcean droplet `159.89.199.180`, Ubuntu 24.04).
+`sslip.io` turns the IP into a hostname so Caddy can get a real HTTPS certificate, which the
+offline/PWA features need. When you have a domain, point it at the droplet and replace the hostname
+in `/etc/caddy/Caddyfile` and in `.github/workflows/ci.yml`.
+
+| Piece | Where |
+|---|---|
+| App | `/opt/krubook/app`, systemd unit `krubook` (user `krubook`, port 4310, 350 MB memory cap) |
+| HTTPS | Caddy, `/etc/caddy/Caddyfile`; the bare IP redirects to the HTTPS name |
+| Database | `/var/lib/krubook/krubook.sqlite` |
+| Settings and secrets | `/etc/krubook/env`, including `KRUBOOK_SETUP_TOKEN`, the code needed to create the first account |
+| Backups | daily at 02:30, `/var/backups/krubook/*.sqlite.gz`, kept 14 days (`krubook-backup.timer`) |
+| Firewall | ufw: 22, 80, 443 only |
+
+`deploy/provision.sh` builds the server from scratch and is safe to re-run.
+
+**Pipeline** (`.github/workflows/ci.yml`): every push and pull request to `main` or `development`
+runs the typecheck, the tests and the build. Pushes to `main` then deploy. The workflow rsyncs the
+release to the droplet as the `krubook` user, runs `deploy/deploy.sh` (`npm ci --omit=dev`, restart,
+health check) and fails if the app does not come back. Repository secrets: `DEPLOY_SSH_KEY` (a key
+used only for deploys; the `krubook` user can only restart its own service), `DEPLOY_HOST` and
+`DEPLOY_KNOWN_HOSTS`.
+
+Useful commands on the server: `journalctl -u krubook -f`, `systemctl restart krubook`,
+`systemctl start krubook-backup`. To restore a nightly backup: `systemctl stop krubook`, then
+`gunzip` the file over `/var/lib/krubook/krubook.sqlite` (owned by `krubook`), then `systemctl start krubook`.

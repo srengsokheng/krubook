@@ -1,0 +1,7 @@
+[Unit]
+Description=KruBook database backup
+
+[Service]
+Type=oneshot
+User=krubook
+ExecStart=/bin/bash /opt/krubook/app/deploy/backup.sh

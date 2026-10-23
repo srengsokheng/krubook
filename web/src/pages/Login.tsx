@@ -4,18 +4,19 @@ import { useI18n } from '../i18n.tsx';
 import { ErrorNote, Field } from '../ui.tsx';
 import type { Me } from '../App.tsx';
 
-export function Login({ needsSetup, onSignedIn }: { needsSetup: boolean; onSignedIn: (u: Me) => void }) {
+export function Login({ needsSetup, setupCode, onSignedIn }: { needsSetup: boolean; setupCode?: boolean; onSignedIn: (u: Me) => void }) {
   const { t } = useI18n();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
+  const [setupToken, setSetupToken] = useState('');
   const [error, setError] = useState<Error | null>(null);
   const [busy, setBusy] = useState(false);
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     try {
-      const r = await api(needsSetup ? '/auth/setup' : '/auth/login', { body: { email, password, name } });
+      const r = await api(needsSetup ? '/auth/setup' : '/auth/login', { body: { email, password, name, setupToken } });
       onSignedIn(r.user);
     } catch (err) {
       setError(err as Error);
@@ -36,6 +37,7 @@ export function Login({ needsSetup, onSignedIn }: { needsSetup: boolean; onSigne
           <h1>{needsSetup ? 'Create the first account' : t('Sign in')}</h1>
           {needsSetup && <p className="muted small">This account becomes the administrator. Cambodian public holidays for 2026–27 are added to start you off.</p>}
           <ErrorNote error={error} />
+          {needsSetup && setupCode && <Field label="Setup code" hint="Printed when the server was installed (KRUBOOK_SETUP_TOKEN in /etc/krubook/env)."><input id="setup" className="mono" value={setupToken} onChange={(e) => setSetupToken(e.target.value)} required autoComplete="off" /></Field>}
           {needsSetup && <Field label="Your name"><input id="name" value={name} onChange={(e) => setName(e.target.value)} required autoComplete="name" /></Field>}
           <Field label={t('Email')}><input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" /></Field>
           <Field label={t('Password')} hint={needsSetup ? 'At least 8 characters.' : undefined}><input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete={needsSetup ? 'new-password' : 'current-password'} /></Field>

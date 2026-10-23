@@ -49,16 +49,29 @@ function readCookie(req: Request, name: string): string | null {
   return null;
 }
 
-export function startSession(db: DB, res: Response, userId: number) {
+const secure = (req: Request) => (req.secure ? '; Secure' : '');
+
+export function startSession(db: DB, req: Request, res: Response, userId: number) {
   const token = randomBytes(32).toString('base64url');
   db.run("INSERT INTO auth_sessions (token, user_id, expires_at) VALUES (?, ?, datetime('now', ?))", token, userId, `+${DAYS} days`);
-  res.setHeader('Set-Cookie', `${COOKIE}=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${DAYS * 86400}`);
+  db.run("DELETE FROM auth_sessions WHERE expires_at <= datetime('now')");
+  res.setHeader('Set-Cookie', `${COOKIE}=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${DAYS * 86400}${secure(req)}`);
+}
+
+// Sign-in attempts per IP address: at most 10 failures in 15 minutes.
+const failures = new Map<string, number[]>();
+export function checkLoginRate(req: Request) {
+  const key = req.ip ?? 'unknown', now = Date.now();
+  const recent = (failures.get(key) ?? []).filter((t) => now - t < 15 * 60_000);
+  failures.set(key, recent);
+  if (recent.length >= 10) throw new AppError(429, 'Too many failed sign-in attempts. Wait 15 minutes and try again.');
+  return () => recent.push(now);
 }
 
 export function endSession(db: DB, req: Request, res: Response) {
   const token = readCookie(req, COOKIE);
   if (token) db.run('DELETE FROM auth_sessions WHERE token = ?', token);
-  res.setHeader('Set-Cookie', `${COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
+  res.setHeader('Set-Cookie', `${COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure(req)}`);
 }
 
 export function authenticate(db: DB) {
