@@ -285,3 +285,31 @@ describe('reports, exports and backup', () => {
     expect(g.rows.length).toBeGreaterThan(40);
   });
 });
+
+describe('claiming imported data', () => {
+  it('the first setup claims the unclaimed owner and its classes, and needs the setup code', async () => {
+    const dir2 = mkdtempSync(join(tmpdir(), 'krubook-claim-'));
+    const h = createHolder(join(dir2, 'claim.sqlite'));
+    const owner = h.db.run("INSERT INTO users (email, name, password_hash, role) VALUES ('owner@krubook.local', 'Teacher', '!', 'admin')").id;
+    h.db.run("INSERT INTO courses (owner_id, code, name) VALUES (?, 'CPP', 'C++')", owner);
+    const s = createApp(h).listen(0);
+    const url = `http://127.0.0.1:${(s.address() as AddressInfo).port}/api`;
+    process.env.KRUBOOK_SETUP_TOKEN = 'code-123';
+    try {
+      const me = await (await fetch(`${url}/auth/me`)).json();
+      expect(me).toMatchObject({ needsSetup: true, setupCode: true });
+      const body = { email: 'me@example.test', name: 'Me', password: 'long-enough-1' };
+      expect((await fetch(`${url}/auth/setup`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...body, setupToken: 'wrong' }) })).status).toBe(403);
+      expect((await fetch(`${url}/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@krubook.local', password: '!' }) })).status).toBe(401);
+      const r = await fetch(`${url}/auth/setup`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...body, setupToken: 'code-123' }) });
+      expect(r.status).toBe(200);
+      const c = r.headers.get('set-cookie')!.split(';')[0];
+      const courses = await (await fetch(`${url}/courses`, { headers: { cookie: c } })).json();
+      expect(courses.map((x: any) => x.code)).toEqual(['CPP']);
+      expect(h.db.all('SELECT id FROM users')).toHaveLength(1);
+    } finally {
+      delete process.env.KRUBOOK_SETUP_TOKEN;
+      s.close(); h.db.close(); rmSync(dir2, { recursive: true, force: true });
+    }
+  });
+});
