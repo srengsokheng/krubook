@@ -2,6 +2,7 @@
 # One-time server setup for KruBook on Ubuntu 24.04. Run as root. Safe to re-run.
 set -euo pipefail
 HOST="${KRUBOOK_HOST:?set KRUBOOK_HOST, e.g. 159-89-199-180.sslip.io}"
+DOMAIN="${KRUBOOK_DOMAIN:?set KRUBOOK_DOMAIN, e.g. setecattendance.online}"
 CI_PUBKEY="${CI_PUBKEY:?set CI_PUBKEY to the public deploy key}"
 
 # 1 GB swap: the droplet has 512 MB of RAM, which npm alone can exhaust.
@@ -56,7 +57,7 @@ chmod 440 /etc/sudoers.d/krubook
 install -m 644 /tmp/krubook-deploy/krubook.service /etc/systemd/system/krubook.service
 install -m 644 /tmp/krubook-deploy/krubook-backup.service /etc/systemd/system/krubook-backup.service
 install -m 644 /tmp/krubook-deploy/krubook-backup.timer /etc/systemd/system/krubook-backup.timer
-sed "s/__HOST__/$HOST/g" /tmp/krubook-deploy/Caddyfile > /etc/caddy/Caddyfile
+sed "s/__HOST__/$HOST/g; s/__DOMAIN__/$DOMAIN/g" /tmp/krubook-deploy/Caddyfile > /etc/caddy/Caddyfile
 systemctl daemon-reload
 systemctl enable krubook krubook-backup.timer >/dev/null
 systemctl start krubook-backup.timer

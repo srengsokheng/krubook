@@ -125,10 +125,12 @@ To undo a restore, stop the server and rename the `before-restore` file back.
 
 ## Production and CI/CD
 
-Live at **https://159-89-199-180.sslip.io** (DigitalOcean droplet `159.89.199.180`, Ubuntu 24.04).
-`sslip.io` turns the IP into a hostname so Caddy can get a real HTTPS certificate, which the
-offline/PWA features need. When you have a domain, point it at the droplet and replace the hostname
-in `/etc/caddy/Caddyfile` and in `.github/workflows/ci.yml`.
+Live at **https://setecattendance.online** (DigitalOcean droplet `159.89.199.180`, Ubuntu 24.04).
+Caddy gets and renews the Let's Encrypt certificate; `www.` and the bare IP redirect to the domain.
+`https://159-89-199-180.sslip.io` also serves the app (it was the address before the domain).
+
+DNS at Namecheap (Advanced DNS): `A @ 159.89.199.180` and `CNAME www setecattendance.online.`.
+Provisioning takes both names: `KRUBOOK_DOMAIN=setecattendance.online KRUBOOK_HOST=159-89-199-180.sslip.io`.
 
 | Piece | Where |
 |---|---|

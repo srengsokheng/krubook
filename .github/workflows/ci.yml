@@ -38,7 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: production
-      url: https://159-89-199-180.sslip.io
+      url: https://setecattendance.online
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
