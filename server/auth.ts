@@ -28,7 +28,7 @@ export function hashPassword(password: string): string {
 
 export function verifyPassword(password: string, stored: string): boolean {
   const [scheme, salt, hash] = stored.split('$');
-  if (scheme !== 'scrypt') return false;
+  if (scheme !== 'scrypt' || !salt || !hash) return false;
   const expected = Buffer.from(hash, 'base64');
   const actual = scryptSync(password, Buffer.from(salt, 'base64'), expected.length);
   return timingSafeEqual(expected, actual);

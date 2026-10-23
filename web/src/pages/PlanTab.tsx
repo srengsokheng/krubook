@@ -80,7 +80,7 @@ export function PlanTab({ cls, onChanged }: { cls: any; onChanged: () => void })
                         <td><Kind kind={s.kind} />{s.kind_source === 'manual' && <span className="faint xs" title="Set by hand"> ✎</span>}</td>
                         <td>
                           {showOriginal && s.original_part_id !== s.part_id && <span className="faint">{partName(s.original_part_id) ?? '—'} → </span>}
-                          <span className={s.status === 'cancelled' || s.status === 'moved' ? 'strike' : ''}>{s.activity === 'lesson' ? partName(s.part_id) ?? '—' : ACTIVITY[s.activity] ?? s.activity}</span>
+                          <span className={s.status === 'cancelled' || s.status === 'moved' ? 'strike' : ''}>{s.activity === 'lesson' ? partName(s.part_id) ?? 'Free lesson slot' : ACTIVITY[s.activity] ?? s.activity}</span>
                           {s.checkpoint && <span className="marker small" style={{ marginLeft: 6 }}>{s.checkpoint}</span>}
                           {s.note && <div className="faint xs">{s.note}</div>}
                         </td>

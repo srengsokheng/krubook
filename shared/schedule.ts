@@ -158,11 +158,9 @@ export function generatePlan(input: PlanInput): PlanResult {
       if (activity === 'lesson') {
         if (kind === 'lecture') {
           partId = queue.shift() ?? null;
-          if (partId === null) activity = 'buffer';
           lastLecturePart = partId;
         } else {
           partId = lastLecturePart;
-          if (partId === null) activity = 'buffer';
         }
       }
       weekSessions.push({ ...base, kind, activity, partId, status: 'planned', note: t.label ?? null });
@@ -235,7 +233,10 @@ export interface ReplanInput {
   from: ISODate;
 }
 
-const TEACHABLE: Activity[] = ['lesson', 'buffer'];
+// Only lesson slots receive curriculum content. Buffer weeks (review, "continued + practice") are
+// the teacher's deliberate choice and are never filled automatically. A lesson slot left without
+// content stays a lesson slot, so it can take content again if the class falls behind.
+const TEACHABLE: Activity[] = ['lesson'];
 
 export function proposeReplan(input: ReplanInput): ReplanResult {
   const hol = new Map(input.holidays.map((h) => [h.date, h.name]));
@@ -306,7 +307,6 @@ export function proposeReplan(input: ReplanInput): ReplanResult {
     } else if (s.kind === 'practice') {
       s.partId = lastLecture;
     }
-    s.activity = s.partId == null ? 'buffer' : 'lesson';
   }
 
   const changes: SessionChange[] = [];

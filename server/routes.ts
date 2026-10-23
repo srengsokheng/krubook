@@ -1,6 +1,6 @@
 import express, { type Request, type Response, type Router } from 'express';
 import { AppError, translateDbError, type DB, type Row } from './db.ts';
-import { checkLoginRate, createUser, endSession, requireUser, startSession, verifyPassword, type User } from './auth.ts';
+import { checkLoginRate, createUser, endSession, hashPassword, requireUser, startSession, verifyPassword, type User } from './auth.ts';
 import { classScope, getSetting, ownClass, ownCourse, ownEnrollment, ownLesson, ownPart, ownSession, ownStudent, ownTerm, setSetting, today } from './services/access.ts';
 import * as plan from './services/plan.ts';
 import * as records from './services/records.ts';
@@ -70,7 +70,7 @@ export function buildRouter(holder: DBHolder): Router {
   const del = (p: string, fn: Handler) => r.delete(p, wrap(fn));
 
   // ---- Auth ------------------------------------------------------------------------------
-  get('/auth/me', (req, db) => ({ user: req.user ?? null, needsSetup: !db.get('SELECT 1 FROM users LIMIT 1'), setupCode: !!process.env.KRUBOOK_SETUP_TOKEN }), { auth: false });
+  get('/auth/me', (req, db) => ({ user: req.user ?? null, needsSetup: !db.get("SELECT 1 FROM users WHERE password_hash <> '!' LIMIT 1"), setupCode: !!process.env.KRUBOOK_SETUP_TOKEN }), { auth: false });
   post('/auth/login', (req, db, _u, res) => {
     const fail = checkLoginRate(req);
     const row = db.get('SELECT * FROM users WHERE email = ?', String(req.body.email ?? '').trim());
@@ -79,10 +79,19 @@ export function buildRouter(holder: DBHolder): Router {
     return { user: { id: row.id, email: row.email, name: row.name, role: row.role } };
   }, { auth: false });
   post('/auth/setup', (req, db, _u, res) => {
-    if (db.get('SELECT 1 FROM users LIMIT 1')) throw new AppError(409, 'An account already exists. Sign in instead.');
+    if (db.get("SELECT 1 FROM users WHERE password_hash <> '!' LIMIT 1")) throw new AppError(409, 'An account already exists. Sign in instead.');
     // On a public server the first account needs the one-time code set on the server.
     const code = process.env.KRUBOOK_SETUP_TOKEN;
     if (code) { const fail = checkLoginRate(req); if (String(req.body.setupToken ?? '').trim() !== code) { fail(); throw new AppError(403, 'The setup code is not correct. It is in /etc/krubook/env on the server.'); } }
+    // Data imported before anyone signed up belongs to an unclaimed owner account (password '!').
+    // Setting up claims that account, so the imported classes become this teacher's.
+    const unclaimed = db.get("SELECT id FROM users WHERE password_hash = '!' ORDER BY id LIMIT 1");
+    if (unclaimed) {
+      if (String(req.body.password ?? '').length < 8) throw new AppError(422, 'Use a password of at least 8 characters.');
+      db.run('UPDATE users SET email = ?, name = ?, password_hash = ?, role = ? WHERE id = ?', str(req.body.email, 'Email'), str(req.body.name, 'Name'), hashPassword(String(req.body.password)), 'admin', unclaimed.id);
+      startSession(db, req, res, unclaimed.id);
+      return { user: db.get('SELECT id, email, name, role FROM users WHERE id = ?', unclaimed.id) };
+    }
     const id = createUser(db, str(req.body.email, 'Email')!, str(req.body.name, 'Name')!, String(req.body.password ?? ''), 'admin');
     for (const h of cambodianHolidays()) db.run("INSERT OR IGNORE INTO holidays (owner_id, date, name, name_km, source, approx) VALUES (?,?,?,?,'national',?)", id, h.date, h.name, h.nameKm, h.approx ? 1 : 0);
     startSession(db, req, res, id);

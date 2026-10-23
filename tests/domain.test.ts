@@ -122,6 +122,14 @@ describe('re-planning proposals', () => {
     expect(r.changes.find((c) => c.sessionId === 3)).toBeUndefined();
   });
 
+  it('never pulls lessons into review/buffer weeks the teacher planned', () => {
+    const template = standardTemplate(17).map((w) => (w.week === 3 ? { ...w, activity: 'buffer' as const, label: 'Lesson 2 continued' } : w));
+    const s = generatePlan({ ...base, template, classStart: '2026-09-07' }).sessions.map((x, i) => ({ id: i + 1, week: x.week, date: x.date, start: x.start, end: x.end, kind: x.kind, kindSource: 'auto' as const, activity: x.activity, partId: x.partId, checkpoint: x.checkpoint, status: x.status as SessionState['status'], locked: false }));
+    s[0].status = 'completed'; s[0].locked = true;
+    const r = proposeReplan({ sessions: s, partIds: parts, coveredPartIds: [100], holidays: [], rule: base.rule, from: '2026-09-08' });
+    expect(r.changes.filter((c) => s.find((x) => x.id === c.sessionId)!.week === 3)).toHaveLength(0);
+  });
+
   it('respects manual Lecture/Practice overrides', () => {
     const s = toState('2026-09-07');
     s[3].kind = 'lecture'; s[3].kindSource = 'manual';

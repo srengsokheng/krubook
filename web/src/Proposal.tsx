@@ -11,7 +11,7 @@ export interface Proposal {
   checkpointWarnings: string[];
 }
 
-const what = (x: any, part: string | null) => (x.status === 'cancelled' ? 'Cancelled' : x.activity !== 'lesson' && x.activity !== 'buffer' ? x.activity.replace('_', ' ') : part ?? 'No lesson (buffer)');
+const what = (x: any, part: string | null) => (x.status === 'cancelled' ? 'Cancelled' : x.activity !== 'lesson' ? (x.activity === 'buffer' ? 'Review / buffer' : x.activity.replace('_', ' ')) : part ?? 'Free lesson slot');
 
 /** Shows the impact of a proposed schedule change. Nothing is applied until the teacher approves. */
 export function ProposalReview({ proposal, onClose, onDone }: { proposal: Proposal; onClose: () => void; onDone: () => void }) {
