@@ -126,8 +126,8 @@ To undo a restore, stop the server and rename the `before-restore` file back.
 ## Production and CI/CD
 
 Live at **https://setecattendance.online** (DigitalOcean droplet `159.89.199.180`, Ubuntu 24.04).
-Caddy gets and renews the Let's Encrypt certificate; `www.` and the bare IP redirect to the domain.
-`https://159-89-199-180.sslip.io` also serves the app (it was the address before the domain).
+nginx serves HTTPS with Let's Encrypt certificates from certbot; `www.`, plain HTTP, the bare IP and
+the old `https://159-89-199-180.sslip.io` address all redirect to the domain.
 
 DNS at Namecheap (Advanced DNS): `A @ 159.89.199.180` and `CNAME www setecattendance.online.`.
 Provisioning takes both names: `KRUBOOK_DOMAIN=setecattendance.online KRUBOOK_HOST=159-89-199-180.sslip.io`.
@@ -135,7 +135,7 @@ Provisioning takes both names: `KRUBOOK_DOMAIN=setecattendance.online KRUBOOK_HO
 | Piece | Where |
 |---|---|
 | App | `/opt/krubook/app`, systemd unit `krubook` (user `krubook`, port 4310, 350 MB memory cap) |
-| HTTPS | Caddy, `/etc/caddy/Caddyfile`; the bare IP redirects to the HTTPS name |
+| HTTPS | nginx (`/etc/nginx/sites-available/krubook`, generated) + certbot. `krubook-certs.timer` runs `deploy/krubook-certs.sh` every 15 min: it requests a certificate for any name in `/etc/krubook/domains` that points at the server and rewrites the nginx site. `certbot.timer` renews; a deploy hook reloads nginx |
 | Database | `/var/lib/krubook/krubook.sqlite` |
 | Settings and secrets | `/etc/krubook/env`, including `KRUBOOK_SETUP_TOKEN`, the code needed to create the first account |
 | Backups | daily at 02:30, `/var/backups/krubook/*.sqlite.gz`, kept 14 days (`krubook-backup.timer`) |
