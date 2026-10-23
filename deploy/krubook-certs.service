@@ -1,0 +1,7 @@
+[Unit]
+Description=KruBook HTTPS certificates and nginx site
+After=network-online.target nginx.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /opt/krubook/app/deploy/krubook-certs.sh
