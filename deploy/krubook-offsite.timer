@@ -1,0 +1,10 @@
+[Unit]
+Description=Nightly KruBook off-site backup (after the local one)
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+RandomizedDelaySec=10m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

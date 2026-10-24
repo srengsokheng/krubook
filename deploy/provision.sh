@@ -81,6 +81,8 @@ install -m 644 /tmp/krubook-deploy/krubook-backup.service /etc/systemd/system/kr
 install -m 644 /tmp/krubook-deploy/krubook-backup.timer /etc/systemd/system/krubook-backup.timer
 install -m 644 /tmp/krubook-deploy/krubook-certs.service /etc/systemd/system/krubook-certs.service
 install -m 644 /tmp/krubook-deploy/krubook-certs.timer /etc/systemd/system/krubook-certs.timer
+install -m 644 /tmp/krubook-deploy/krubook-offsite.service /etc/systemd/system/krubook-offsite.service
+install -m 644 /tmp/krubook-deploy/krubook-offsite.timer /etc/systemd/system/krubook-offsite.timer
 printf 'DOMAIN=%s
 HOST=%s
 ' "$DOMAIN" "$HOST" > /etc/krubook/domains
@@ -94,6 +96,8 @@ sed -i -E 's/^\s*ssl_protocols .*/	ssl_protocols TLSv1.2 TLSv1.3;/; s/^\s*ssl_pr
 systemctl daemon-reload
 systemctl enable --now nginx krubook-backup.timer krubook-certs.timer certbot.timer >/dev/null
 systemctl enable krubook >/dev/null
+# Off-site backups start only once /etc/krubook/offsite.env exists (see docs/BACKUPS.md).
+if [ -f /etc/krubook/offsite.env ]; then command -v rclone >/dev/null || apt-get install -yq rclone; systemctl enable --now krubook-offsite.timer >/dev/null; fi
 bash /tmp/krubook-deploy/krubook-certs.sh
 sed -i '/^KRUBOOK_SETUP_TOKEN=/d' /etc/krubook/env   # sign-up codes are no longer used
 install -m 755 /tmp/krubook-deploy/krubook-user /usr/local/bin/krubook-user
