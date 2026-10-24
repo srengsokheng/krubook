@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, useApi } from '../api.ts';
 import { useI18n } from '../i18n.tsx';
-import { Confirm, Dialog, Empty, ErrorNote, Field, Icon, Loading, MaterialStatus, Notice, useAction, useToast } from '../ui.tsx';
+import { Confirm, Dialog, Empty, ErrorNote, Field, Icon, Loading, MaterialStatus, Menu, Notice, useAction, useToast } from '../ui.tsx';
 
 export function Courses() {
   const { t } = useI18n();
@@ -69,6 +69,7 @@ export function CourseDetail() {
   const [partForm, setPartForm] = useState<any | null>(null);
   const [confirm, setConfirm] = useState<null | { title: string; body: string; go: () => void }>(null);
   const [template, setTemplate] = useState<any[] | null>(null);
+  const nav = useNavigate();
   const { busy, run } = useAction();
   if (error) return <div className="page"><ErrorNote error={error} retry={reload} /></div>;
   if (loading && !c) return <div className="page"><Loading rows={8} /></div>;
@@ -88,7 +89,10 @@ export function CourseDetail() {
         </div>
         <div className="toolbar">
           <button className="btn" onClick={() => setEditing(true)}><Icon name="edit" />Edit</button>
-          <button className="btn" onClick={() => call(`/courses/${c.id}`, 'PUT', { archived: !c.archived }, c.archived ? 'Course restored' : 'Course archived')}>{c.archived ? 'Restore' : 'Archive'}</button>
+          <Menu label="More" items={[
+            { label: c.archived ? 'Restore course' : 'Archive course', onSelect: () => call(`/courses/${c.id}`, 'PUT', { archived: !c.archived }, c.archived ? 'Course restored' : 'Course archived') },
+            { label: 'Delete course…', danger: true, onSelect: () => setConfirm({ title: `Delete ${c.code}?`, body: 'Only possible while no class uses this course. Its lessons, parts and materials are deleted too.', go: () => run(() => api(`/courses/${c.id}`, { method: 'DELETE' }), 'Course deleted').then((r) => { if (r) nav('/courses'); }) }) },
+          ]} />
         </div>
       </div>
 

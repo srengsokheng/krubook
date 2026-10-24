@@ -85,6 +85,7 @@ export function TermDetail() {
           <button className="btn" onClick={() => setEditing(true)}><Icon name="edit" />Edit</button>
           <button className="btn" onClick={() => setCloning(true)}>Clone into new term</button>
           {term.status !== 'archived' && <button className="btn" onClick={() => setArchiving(true)}>Archive</button>}
+          {!term.classes.length && <button className="btn danger" disabled={busy} onClick={() => run(() => api(`/terms/${term.id}`, { method: 'DELETE' }), 'Term deleted').then((r) => { if (r) nav('/terms'); })}>Delete</button>}
         </div>
       </div>
       <div className="grid two">
