@@ -17,7 +17,7 @@ if systemctl is-enabled caddy >/dev/null 2>&1; then systemctl disable --now cadd
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
-apt-get install -yq ca-certificates curl gnupg rsync ufw dnsutils nginx certbot
+apt-get install -yq ca-certificates curl gnupg rsync ufw dnsutils nginx certbot fail2ban
 
 # Node.js 22 (NodeSource)
 if ! node -v 2>/dev/null | grep -q '^v22'; then
@@ -25,6 +25,31 @@ if ! node -v 2>/dev/null | grep -q '^v22'; then
   apt-get install -yq nodejs
 fi
 
+
+# SSH: keys only, root by key only, no X11, few tries per connection.
+cat > /etc/ssh/sshd_config.d/10-krubook-hardening.conf <<SSHD
+PermitRootLogin prohibit-password
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+X11Forwarding no
+MaxAuthTries 3
+SSHD
+sshd -t && systemctl reload ssh
+
+# fail2ban: ban IPs that keep failing SSH (Ubuntu 24.04 logs sshd under ssh.service).
+cat > /etc/fail2ban/jail.local <<F2B
+[DEFAULT]
+backend = systemd
+bantime = 1h
+findtime = 10m
+maxretry = 5
+bantime.increment = true
+
+[sshd]
+enabled = true
+journalmatch = _SYSTEMD_UNIT=ssh.service
+F2B
+systemctl enable fail2ban >/dev/null 2>&1 && systemctl restart fail2ban
 
 ufw allow OpenSSH >/dev/null; ufw allow 80/tcp >/dev/null; ufw allow 443/tcp >/dev/null; ufw --force enable >/dev/null
 

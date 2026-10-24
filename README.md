@@ -142,6 +142,7 @@ Provisioning takes both names: `KRUBOOK_DOMAIN=setecattendance.online KRUBOOK_HO
 | Accounts | No public sign-up. On the server: `sudo krubook-user add <email> <name>`, `sudo krubook-user passwd <email>`, `sudo krubook-user list` (passwords are typed at a hidden prompt) |
 | Backups | daily at 02:30, `/var/backups/krubook/*.sqlite.gz`, kept 14 days (`krubook-backup.timer`) |
 | Firewall | ufw: 22, 80, 443 only |
+| SSH | keys only; root by key only; no X11; 3 tries per connection; fail2ban bans IPs after 5 failures in 10 min (1 h, growing). With many keys in an SSH agent, connect with `-o IdentitiesOnly=yes -i <key>` |
 
 `deploy/provision.sh` builds the server from scratch and is safe to re-run.
 
