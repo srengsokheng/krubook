@@ -81,7 +81,7 @@ export function Settings({ me }: { me: Me }) {
                   <tr key={h.id}>
                     <td style={{ width: 150 }}><input type="date" aria-label={`Date of ${h.name}`} defaultValue={h.date} onBlur={(e) => e.target.value !== h.date && run(() => api(`/holidays/${h.id}`, { method: 'PUT', body: { date: e.target.value } }), 'Holiday date updated').then(reloadHol)} /></td>
                     <td className="small">{h.name}{h.name_km && <div className="faint xs">{h.name_km}</div>}{h.term_name && <div className="faint xs">only {h.term_name}</div>}</td>
-                    <td>{h.approx ? <Pill tone="warn">check</Pill> : h.source === 'national' ? <Pill>national</Pill> : <Pill tone="accent">yours</Pill>}</td>
+                    <td>{h.approx ? <Pill tone="warn" title="Estimated date; confirm against the official list">estimate</Pill> : h.verified_note ? <Pill tone="ok" title={h.verified_note}>verified</Pill> : h.source === 'national' ? <Pill>national</Pill> : <Pill tone="accent">yours</Pill>}</td>
                     <td><button className="btn sm ghost" aria-label={`Remove ${h.name}`} onClick={() => run(() => api(`/holidays/${h.id}`, { method: 'DELETE' }), 'Holiday removed').then(reloadHol)}><Icon name="trash" /></button></td>
                   </tr>
                 ))}</tbody>
@@ -126,6 +126,7 @@ export function Settings({ me }: { me: Me }) {
         {tab === 'backup' && (
         <section className="panel">
           <div className="panel-head"><h2>{t('Backup')} and restore</h2></div>
+          {me.role === 'admin' && <BackupStatus />}
           <div className="panel-body stack">
             {me.role !== 'admin' ? <Notice tone="info">Only an administrator can back up or restore the system.</Notice> : <>
               <p className="small">A backup contains every course, term, class, student, enrollment, session, teaching record, attendance mark, grade, holiday, pay record and the audit history. It also contains password hashes, so store it somewhere private.</p>
@@ -185,5 +186,22 @@ function Activity() {
         </>
       ) : <Empty title="No changes recorded yet" />}
     </section>
+  );
+}
+
+function BackupStatus() {
+  const { data } = useApi<any>('/backup/status');
+  if (!data) return null;
+  const line = (label: string, st: any, hint: string) => (
+    <div className="row between">
+      <span className="small">{label}</span>
+      {!st ? <span className="faint xs">{hint}</span> : st.ok ? <Pill tone="ok" title={st.file ?? ''}>ok · {String(st.finishedAt ?? '').replace('T', ' ').slice(0, 16)} UTC</Pill> : <Pill tone="bad" title={st.error ?? ''}>failed · {String(st.finishedAt ?? '').replace('T', ' ').slice(0, 16)}</Pill>}
+    </div>
+  );
+  return (
+    <div className="panel-body stack" style={{ gap: 6, borderBottom: '1px solid var(--rule)' }}>
+      {line('Nightly copy on this server', data.local, 'no record yet')}
+      {line('Off-site copy', data.offsite, 'not configured')}
+    </div>
   );
 }

@@ -1,4 +1,5 @@
 import express, { type Request, type Response, type Router } from 'express';
+import { readFileSync } from 'node:fs';
 import { AppError, translateDbError, type DB, type Row } from './db.ts';
 import { addAccount, checkLoginRate, endSession, requireUser, startSession, verifyPassword, type User } from './auth.ts';
 import { classScope, getSetting, ownClass, ownCourse, ownEnrollment, ownLesson, ownPart, ownSession, ownStudent, ownTerm, setSetting, today } from './services/access.ts';
@@ -9,6 +10,7 @@ import * as reports from './services/reports.ts';
 import * as exportsSvc from './services/exports.ts';
 import * as backup from './services/backup.ts';
 import * as pay from './services/pay.ts';
+import * as reconcile from './services/reconcile.ts';
 import { pageArray, paged, readPage, readSort } from './paging.ts';
 import { addDays, diffDays, isISODate, isTime, rangesOverlap, startOfWeek } from '../shared/dates.ts';
 import { findOverlaps, standardTemplate, type SessionRule } from '../shared/schedule.ts';
@@ -67,6 +69,13 @@ function validRule(v: unknown): SessionRule {
   throw new AppError(422, 'The Lecture/Practice rule is not valid.');
 }
 
+/** Last local and off-site backup results, written by the backup scripts. */
+function backupStatus() {
+  const read = (f: string) => { try { return JSON.parse(readFileSync(f, 'utf8')); } catch { return null; } };
+  const dir = process.env.KRUBOOK_BACKUP_DIR ?? '/var/backups/krubook';
+  return { local: read(`${dir}/status-local.json`), offsite: read(`${dir}/status-offsite.json`) };
+}
+
 export function buildRouter(holder: DBHolder): Router {
   const r = express.Router();
   const wrap = (fn: Handler, opts: { auth?: boolean } = {}) => async (req: Request, res: Response) => {
@@ -88,6 +97,16 @@ export function buildRouter(holder: DBHolder): Router {
   const post = (p: string, fn: Handler, o?: { auth?: boolean }) => r.post(p, wrap(fn, o));
   const put = (p: string, fn: Handler) => r.put(p, wrap(fn));
   const del = (p: string, fn: Handler) => r.delete(p, wrap(fn));
+
+  // ---- Health (public, for uptime monitors; reveals nothing about the data) ---------------------
+  r.get('/health', (_req, res) => {
+    try {
+      holder.db.get('SELECT 1');
+      res.json({ status: 'ok' });
+    } catch {
+      res.status(503).json({ status: 'error' });
+    }
+  });
 
   // ---- Auth ------------------------------------------------------------------------------
   // Self-service sign-up is off in production: accounts are created on the server with
@@ -325,7 +344,10 @@ export function buildRouter(holder: DBHolder): Router {
   put('/holidays/:id', (req, db, u) => {
     const h = db.get('SELECT * FROM holidays WHERE id = ? AND owner_id = ?', num(req.params.id, 'holiday'), u.id);
     if (!h) throw new AppError(404, 'Holiday not found.');
-    db.run('UPDATE holidays SET date=?, name=?, name_km=?, approx=0 WHERE id=?', date(req.body.date ?? h.date, 'Date'), str(req.body.name ?? h.name, 'Name'), req.body.nameKm ?? h.name_km, h.id);
+    db.tx(() => {
+      db.run('UPDATE holidays SET date=?, name=?, name_km=?, approx=0, verified_note=? WHERE id=?', date(req.body.date ?? h.date, 'Date'), str(req.body.name ?? h.name, 'Name'), req.body.nameKm ?? h.name_km, req.body.verifiedNote === undefined ? (h.verified_note ?? 'Confirmed by the teacher') : optText(req.body.verifiedNote, 'Source', 200), h.id);
+      db.audit(u.id, 'holiday', h.id, 'update', h, req.body);
+    });
   });
   del('/holidays/:id', (req, db, u) => { db.run('DELETE FROM holidays WHERE id = ? AND owner_id = ?', num(req.params.id, 'holiday'), u.id); });
   post('/holidays/check', (req, db, u) => {
@@ -551,6 +573,19 @@ export function buildRouter(holder: DBHolder): Router {
 
   // ---- Dashboard & pay ---------------------------------------------------------------------
   get('/dashboard', (_req, db, u) => reports.dashboard(db, u));
+
+  // ---- Reconciliation (review first, then apply) --------------------------------------------
+  get('/reconcile/sessions', (_req, db, u) => reconcile.unrecordedSessions(db, u));
+  post('/reconcile/sessions', (req, db, u) => reconcile.reconcileSessions(db, u, req.body.decisions, req.query.dryRun === '1'));
+  post('/students/id-match', (req, db, u) => reconcile.matchStudentIds(db, u, list(req.body.rows, 'Rows', 5000)));
+  post('/students/id-apply', (req, db, u) => reconcile.applyStudentIds(db, u, list(req.body.assignments, 'Changes', 5000)));
+  get('/classes/:id/attendance-migration', (req, db, u) => reconcile.attendancePreview(db, u, num(req.params.id, 'class')));
+  post('/classes/:id/attendance-migration', (req, db, u) => reconcile.switchToCalculated(db, u, num(req.params.id, 'class'), req.body.enrollmentIds, req.body.confirm === true));
+  post('/classes/:id/attendance-migration/restore', (req, db, u) => reconcile.restoreManual(db, u, num(req.params.id, 'class')));
+  get('/backup/status', (_req, _db, u) => {
+    if (u.role !== 'admin') throw new AppError(403, 'Only an administrator can see backup status.');
+    return backupStatus();
+  });
   get('/pay', (req, db, u) => pay.payOverview(db, u, String(req.query.year ?? today(db, u).slice(0, 4))));
   get('/pay/lines', (req, db, u) => {
     const p = readPage(req.query, 25);

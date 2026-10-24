@@ -9,6 +9,9 @@ export interface HolidaySeed {
   approx?: boolean;
 }
 
+/** 2026 dates match Sub-Decree No. 167 (18 Sep 2025); 2027 lunar holidays are not published yet. */
+export const SOURCE_2026 = 'Sub-Decree No. 167 (18 Sep 2025)';
+
 const FIXED: Array<[string, string, string]> = [
   ['01-01', "International New Year's Day", 'ទិវាចូលឆ្នាំសកល'],
   ['01-07', 'Victory over Genocide Day', 'ទិវាជ័យជម្នះលើរបបប្រល័យពូជសាសន៍'],
@@ -27,14 +30,14 @@ const FIXED: Array<[string, string, string]> = [
 ];
 
 const LUNAR_2026: HolidaySeed[] = [
-  { date: '2026-05-01', name: 'Visak Bochea Day', nameKm: 'ពិធីបុណ្យវិសាខបូជា', approx: true },
-  { date: '2026-05-05', name: 'Royal Ploughing Ceremony', nameKm: 'ព្រះរាជពិធីច្រត់ព្រះនង្គ័ល', approx: true },
-  { date: '2026-10-10', name: 'Pchum Ben Festival', nameKm: 'ពិធីបុណ្យភ្ជុំបិណ្ឌ', approx: true },
-  { date: '2026-10-11', name: 'Pchum Ben Festival', nameKm: 'ពិធីបុណ្យភ្ជុំបិណ្ឌ', approx: true },
-  { date: '2026-10-12', name: 'Pchum Ben Festival', nameKm: 'ពិធីបុណ្យភ្ជុំបិណ្ឌ', approx: true },
-  { date: '2026-11-23', name: 'Water Festival', nameKm: 'ព្រះរាជពិធីបុណ្យអុំទូក', approx: true },
-  { date: '2026-11-24', name: 'Water Festival', nameKm: 'ព្រះរាជពិធីបុណ្យអុំទូក', approx: true },
-  { date: '2026-11-25', name: 'Water Festival', nameKm: 'ព្រះរាជពិធីបុណ្យអុំទូក', approx: true },
+  { date: '2026-05-01', name: 'Visak Bochea Day', nameKm: 'ពិធីបុណ្យវិសាខបូជា' },
+  { date: '2026-05-05', name: 'Royal Ploughing Ceremony', nameKm: 'ព្រះរាជពិធីច្រត់ព្រះនង្គ័ល' },
+  { date: '2026-10-10', name: 'Pchum Ben Festival', nameKm: 'ពិធីបុណ្យភ្ជុំបិណ្ឌ' },
+  { date: '2026-10-11', name: 'Pchum Ben Festival', nameKm: 'ពិធីបុណ្យភ្ជុំបិណ្ឌ' },
+  { date: '2026-10-12', name: 'Pchum Ben Festival', nameKm: 'ពិធីបុណ្យភ្ជុំបិណ្ឌ' },
+  { date: '2026-11-23', name: 'Water Festival', nameKm: 'ព្រះរាជពិធីបុណ្យអុំទូក' },
+  { date: '2026-11-24', name: 'Water Festival', nameKm: 'ព្រះរាជពិធីបុណ្យអុំទូក' },
+  { date: '2026-11-25', name: 'Water Festival', nameKm: 'ព្រះរាជពិធីបុណ្យអុំទូក' },
 ];
 
 export function cambodianHolidays(years: number[] = [2026, 2027]): HolidaySeed[] {

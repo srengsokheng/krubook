@@ -22,6 +22,14 @@ export function createApp(holder: DBHolder, opts: { staticDir?: string } = {}) {
   app.disable('x-powered-by');
   // Behind Caddy on the same machine: trust its X-Forwarded-* headers for HTTPS and client IP.
   app.set('trust proxy', 'loopback');
+  // Content-Security-Policy: only this site's own scripts, styles, fonts and API. Inline style
+  // attributes are allowed because React sets them; inline scripts are not.
+  app.use((_req, res, next) => {
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'");
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    next();
+  });
   app.use(express.json({ limit: '200mb' }));
   app.use((req, res, next) => authenticate(holder.db)(req, res, next));
   app.use('/api', (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });

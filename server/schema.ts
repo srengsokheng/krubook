@@ -478,4 +478,27 @@ CREATE INDEX students_owner_latin ON students(owner_id, name_latin);
 -- Attendance totals read only these columns; a covering index avoids a table lookup per mark.
 CREATE INDEX attendance_session_cover ON attendance(session_id, enrollment_id, status);
 `,
+  /* 3: holiday sources, archive of replaced manual scores */ `
+-- Where a holiday date was confirmed, e.g. "Sub-Decree No. 167 (18 Sep 2025)".
+ALTER TABLE holidays ADD COLUMN verified_note TEXT;
+
+-- Manual scores taken out of the gradebook (e.g. imported attendance points replaced by the
+-- calculation) are kept here so they can be restored.
+CREATE TABLE score_archive (
+  id INTEGER PRIMARY KEY,
+  enrollment_id INTEGER NOT NULL REFERENCES enrollments(id) ON DELETE RESTRICT,
+  component_id INTEGER NOT NULL REFERENCES grade_components(id) ON DELETE RESTRICT,
+  value REAL NOT NULL,
+  reason TEXT NOT NULL,
+  archived_by INTEGER REFERENCES users(id),
+  archived_at TEXT NOT NULL DEFAULT (datetime('now')),
+  restored_at TEXT
+);
+CREATE INDEX score_archive_component ON score_archive(component_id, restored_at);
+
+-- The 2026 national holidays seeded earlier match Sub-Decree No. 167 (18 Sep 2025) exactly, including
+-- the lunar ones first entered as estimates. Only untouched national entries on those dates change.
+UPDATE holidays SET approx = 0, verified_note = 'Sub-Decree No. 167 (18 Sep 2025)'
+ WHERE source = 'national' AND date IN ('2026-01-01','2026-01-07','2026-03-08','2026-04-14','2026-04-15','2026-04-16','2026-05-01','2026-05-05','2026-05-14','2026-06-18','2026-09-24','2026-10-10','2026-10-11','2026-10-12','2026-10-15','2026-10-29','2026-11-09','2026-11-23','2026-11-24','2026-11-25','2026-12-29');
+`,
 ];

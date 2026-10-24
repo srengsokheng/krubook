@@ -19,7 +19,7 @@ export function Dashboard() {
   const behind = d.progress.filter((p: any) => p.progress.status === 'behind');
   const attention = [
     ...d.proposals.map((p: any) => ({ key: `p${p.id}`, to: `/classes/${p.class_id}/plan`, text: <><b className="mono">{p.code}</b> schedule change to review</>, tone: 'warn' })),
-    ...unrecorded.map((p: any) => ({ key: `u${p.classId}`, to: `/classes/${p.classId}/plan`, text: <><b className="mono">{p.code}</b> {p.unrecorded} past session{p.unrecorded > 1 ? 's' : ''} not recorded</>, tone: 'warn' })),
+    ...(unrecorded.length ? [{ key: 'unrec', to: '/review', text: <>{unrecorded.reduce((n: number, p: any) => n + p.unrecorded, 0)} past sessions need a decision ({unrecorded.map((p: any) => p.code).join(', ')})</>, tone: 'warn' }] : []),
     ...(d.notReady.length ? [{ key: 'mat', to: `/classes/${d.notReady[0].classId}`, text: <>{d.notReady.length} material{d.notReady.length > 1 ? 's' : ''} not ready for this week</>, tone: 'warn' }] : []),
     ...(d.atRiskTotal ? [{ key: 'risk', to: `/classes/${d.atRisk[0].classId}/grades`, text: <>{d.atRiskTotal} student{d.atRiskTotal > 1 ? 's' : ''} at risk of failing</>, tone: 'bad' }] : []),
   ];

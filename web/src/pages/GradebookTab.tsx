@@ -19,6 +19,7 @@ export function GradebookTab({ cls }: { cls: any }) {
   const [sort, setSort] = useState<{ key: string; dir: 1 | -1 }>({ key: 'code', dir: 1 });
   const [filter, setFilter] = useState<'all' | 'missing' | 'risk'>('all');
   const [editing, setEditing] = useState(false);
+  const [migrating, setMigrating] = useState(false);
   const [focusRow, setFocusRow] = useState<number | null>(null);
   const sync = useSync();
   const tableRef = useRef<HTMLTableElement>(null);
@@ -180,6 +181,7 @@ export function GradebookTab({ cls }: { cls: any }) {
           <Pill tone={data.config.status === 'active' ? 'ok' : data.config.status === 'finalized' ? 'ink' : 'warn'}>{data.config.status}</Pill>
           <Menu label="More" items={[
             { label: 'Grading setup…', onSelect: () => setEditing(true) },
+            { label: 'Use calculated attendance…', hidden: !comps.some((c) => c.kind === 'attendance'), onSelect: () => setMigrating(true) },
             { label: 'Export to Excel', onSelect: () => download(`/export/gradebook/${cls.id}`).catch((e) => toast(e.message, 'bad')) },
             { label: 'Print / PDF', href: `/print/gradebook/${cls.id}` },
             { label: 'Finalize gradebook', hidden: !(valid && data.config.status === 'active'), onSelect: () => api(`/classes/${cls.id}/grade-config/status`, { body: { status: 'finalized' } }).then(reload).catch((e) => toast(e.message, 'bad')) },
@@ -239,6 +241,7 @@ export function GradebookTab({ cls }: { cls: any }) {
           </tbody>
         </table>
       </div>
+      {migrating && <AttendanceMigration cls={cls} onClose={() => setMigrating(false)} onDone={() => { setMigrating(false); reload(); }} />}
       {editing && <ConfigEditor cls={cls} data={data} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); reload(); }} />}
     </div>
   );
@@ -304,6 +307,47 @@ function ConfigEditor({ cls, data, onClose, onSaved }: { cls: any; data: any; on
           </select>
         </Field>
       </div>
+    </Dialog>
+  );
+}
+
+/** Preview and switch imported attendance + activity points to the calculated attendance score. */
+function AttendanceMigration({ cls, onClose, onDone }: { cls: any; onClose: () => void; onDone: () => void }) {
+  const { data, error } = useApi<any>(`/classes/${cls.id}/attendance-migration`);
+  const [sel, setSel] = useState<Record<number, boolean> | null>(null);
+  const { busy, run } = useAction();
+  const rows = (data?.rows ?? []).filter((r: any) => r.manual != null);
+  const chosen = sel ?? Object.fromEntries(rows.map((r: any) => [r.enrollmentId, r.change === 'replaced']));
+  const ids = Object.entries(chosen).filter(([, v]) => v).map(([k]) => +k);
+  return (
+    <Dialog wide title="Use calculated attendance" onClose={onClose} footer={<>
+      {data?.archived > 0 && <button className="btn" disabled={busy} onClick={() => run(() => api(`/classes/${cls.id}/attendance-migration/restore`, { body: {} }), 'Manual values restored').then((r) => r && onDone())}>Restore {data.archived} manual value(s)</button>}
+      <button className="btn" onClick={onClose}>Cancel</button>
+      <button className="btn primary" disabled={busy || !ids.length} onClick={() => run(() => api(`/classes/${cls.id}/attendance-migration`, { body: { enrollmentIds: ids, confirm: true } }), `Calculated attendance now used for ${ids.length} student(s)`).then((r) => r && onDone())}>Switch {ids.length} student{ids.length === 1 ? '' : 's'}</button>
+    </>}>
+      {error && <ErrorNote error={error} />}
+      {!data ? <Loading /> : !rows.length ? <Notice tone="ok">No manual {data.component.name} values. Every student already uses the calculated score.</Notice> : (
+        <>
+          <p className="muted small">{rows.length} student(s) have a manual {data.component.name} value (/{data.component.max}), for example imported from Excel. Switching removes the manual value and uses the score calculated from {data.sessionsWithRollCall} roll call(s). Manual values are kept and can be restored.</p>
+          {data.summary.becomesMissing > 0 && <Notice tone="warn">{data.summary.becomesMissing} student(s) have no roll calls yet; their score would become empty. They are not selected.</Notice>}
+          {data.summary.resultChanges > 0 && <Notice tone="warn">{data.summary.resultChanges} result(s) would change between pass and fail.</Notice>}
+          <div className="table-wrap panel" style={{ maxHeight: '50vh', overflowY: 'auto' }}>
+            <table className="table">
+              <thead><tr><th><input type="checkbox" aria-label="Select all" checked={ids.length === rows.length} onChange={(e) => setSel(Object.fromEntries(rows.map((r: any) => [r.enrollmentId, e.target.checked])))} /></th><th>Student</th><th className="num">Manual</th><th className="num">Calculated</th><th className="num">Total</th><th>Result</th></tr></thead>
+              <tbody>{rows.map((r: any) => (
+                <tr key={r.enrollmentId}>
+                  <td><input type="checkbox" aria-label={`Switch ${r.code}`} checked={!!chosen[r.enrollmentId]} onChange={(e) => setSel({ ...chosen, [r.enrollmentId]: e.target.checked })} /></td>
+                  <td className="small"><span className="mono faint">{r.code}</span> {r.nameKm ?? r.nameLatin}</td>
+                  <td className="num mono">{fmt(r.manual)}</td>
+                  <td className="num mono">{r.calculated == null ? <span className="faint">none yet</span> : fmt(r.calculated)}</td>
+                  <td className="num mono">{fmt(r.totalBefore)} → <b>{fmt(r.totalAfter)}</b></td>
+                  <td className="small">{r.resultBefore === r.resultAfter ? <span className="faint">{r.resultAfter}</span> : <b>{r.resultBefore} → {r.resultAfter}</b>}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        </>
+      )}
     </Dialog>
   );
 }
