@@ -171,3 +171,44 @@ Activity points are imported as manual values, because the workbook has no roll 
 lists the lesson files in `cpp/lessonNN` and `nodejs/lessonNN` as ready materials. The workbook has no student IDs,
 so students get placeholder IDs such as `ASL3-07`. Edit them on each student's page. The data
 belongs to an unclaimed account; the first account created with `krubook-user add` claims it.
+
+## Teaching pay
+
+Pay counts only sessions recorded as taught (a teaching record) in the teacher's own classes.
+Cancelled sessions and past sessions without a record earn nothing; make-up sessions are paid like
+any other. Each session is priced with the most specific active rate in force on its date (class,
+then course, then all classes), hourly or per session, rounded to the cent per session.
+
+A month moves through three states:
+
+| State | Meaning | Changes allowed |
+|---|---|---|
+| Estimated | taught sessions not on a statement, priced with current rates | rates and adjustments may change it |
+| Approved | **Approve** freezes the month's sessions, minutes, rates, amounts and adjustments into a statement | **Undo approval** returns it to estimated |
+| Paid | **Mark as paid** records the date and amount received | none (enforced by database triggers) |
+
+A session can appear on only one statement (unique index), so it can never be paid twice. Sessions
+recorded after a month was approved show as "not approved" and can be approved separately. The old
+`payments` table is kept for old backups but is no longer used.
+
+## Paging
+
+Large lists are paged on the server with `?page=1&pageSize=25` (10, 25, 50 or 100) and return
+`{ items, total, page, pageSize, pages }`; invalid values return 400. Paged: students (`q`, `sort`
+= code/km/latin, `dir`), class attendance summary (`q`), pay sessions (`year`/`month`) and the
+activity log (`entity`). Class gradebooks (about 50 students) and term plans (about 40 sessions)
+are not paged, so spreadsheet keyboard entry and paste keep working across the whole class.
+
+## Performance check
+
+`npx tsx scripts/scale-db.ts data/import-test.sqlite data/scale-test.sqlite` builds a 10x copy of
+the real data (3,201 students, 21,240 attendance marks, 20,313 audit rows); `npx tsx scripts/bench.ts
+<db>` reports the median time and size of the main endpoints.
+
+## TLS
+
+`deploy/krubook-certs.sh` generates the nginx site: TLS 1.2 and 1.3 only, TLS 1.2 limited to
+forward-secret AEAD ciphers (Mozilla intermediate), session tickets off, HSTS for one year on the
+domain and `www` only (no `includeSubDomains`), `X-Frame-Options DENY`. Provisioning also sets the
+global `nginx.conf` default to TLS 1.2/1.3 and turns off `server_tokens`. Check a host with
+`bash deploy/tlscheck.sh setecattendance.online` (protocols, weak ciphers, certificate, chain).

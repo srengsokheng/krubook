@@ -64,6 +64,8 @@ printf '#!/bin/sh
 systemctl reload nginx
 ' > /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
 chmod 755 /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
+# Global nginx defaults: no TLS 1.0/1.1 anywhere, and no version number in responses.
+sed -i -E 's/^\s*ssl_protocols .*/	ssl_protocols TLSv1.2 TLSv1.3;/; s/^\s*ssl_prefer_server_ciphers on;/	ssl_prefer_server_ciphers off;/; s/^\s*# server_tokens off;/	server_tokens off;/' /etc/nginx/nginx.conf
 systemctl daemon-reload
 systemctl enable --now nginx krubook-backup.timer krubook-certs.timer certbot.timer >/dev/null
 systemctl enable krubook >/dev/null

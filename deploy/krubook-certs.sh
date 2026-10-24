@@ -28,12 +28,18 @@ proxy='
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }'
+# Mozilla "intermediate" profile: TLS 1.3, plus TLS 1.2 with forward-secret AEAD ciphers only.
 tls() { echo "    listen 443 ssl http2; listen [::]:443 ssl http2;
     ssl_certificate /etc/letsencrypt/live/$1/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/$1/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305;
+    ssl_prefer_server_ciphers off;
+    ssl_ecdh_curve X25519:prime256v1:secp384r1;
     ssl_session_cache shared:krubook:10m;
     ssl_session_timeout 1d;
+    ssl_session_tickets off;
+    add_header X-Frame-Options DENY always;
     add_header Strict-Transport-Security \"max-age=31536000\" always;
     add_header X-Content-Type-Options nosniff always;
     add_header Referrer-Policy same-origin always;"; }

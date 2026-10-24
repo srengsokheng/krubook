@@ -157,7 +157,6 @@ export function seedDemo(db: DB) {
 
   db.run("INSERT INTO rates (owner_id, mode, amount, effective_from) VALUES (?, 'hourly', 12, '2026-01-01')", uid);
   db.run("INSERT INTO pay_adjustments (owner_id, month, amount, note) VALUES (?, '2026-09', 15, 'Exam invigilation, 15 Sep')", uid);
-  db.run("INSERT INTO payments (owner_id, month, amount, status, paid_on, note) VALUES (?, '2026-09', 420, 'paid', '2026-10-05', 'September transfer')", uid);
   return u;
 }
 
