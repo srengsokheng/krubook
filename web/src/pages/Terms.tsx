@@ -13,7 +13,7 @@ export function Terms() {
   return (
     <div className="page">
       <div className="page-head">
-        <div><h1>{t('Terms')}</h1><p className="sub">Each term has its own dates, exam windows and holidays.</p></div>
+        <div><h1>{t('Terms')}</h1></div>
         <button className="btn primary" onClick={() => setForm({})}><Icon name="plus" />New term</button>
       </div>
       {loading && !data ? <Loading /> : !data?.length ? <div className="panel"><Empty title="No terms yet" action={<button className="btn primary" onClick={() => setForm({})}>Create a term</button>} /></div> : (

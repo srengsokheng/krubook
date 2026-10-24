@@ -42,6 +42,24 @@ const date = (v: unknown, what: string, required = true): string | null => {
   return v;
 };
 
+const optMinutes = (v: unknown): number | null => {
+  if (v === undefined || v === null || v === '') return null;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 1 || n > 1440) throw new AppError(422, 'Minutes must be a whole number between 1 and 1440.');
+  return n;
+};
+const optText = (v: unknown, what: string, max = 2000): string | null => {
+  if (v === undefined || v === null || v === '') return null;
+  if (typeof v !== 'string') throw new AppError(422, `${what} must be text.`);
+  if (v.length > max) throw new AppError(422, `${what} is too long (max ${max} characters).`);
+  return v.trim() || null;
+};
+function list<T = unknown>(v: unknown, what: string, max = 2000): T[] {
+  if (!Array.isArray(v)) throw new AppError(422, `${what} must be a list.`);
+  if (v.length > max) throw new AppError(422, `Send at most ${max} ${what.toLowerCase()} at a time.`);
+  return v as T[];
+}
+
 function validRule(v: unknown): SessionRule {
   const r = v as SessionRule;
   if (r?.mode === 'sequence' && Array.isArray(r.sequence) && r.sequence.length && r.sequence.every((k) => k === 'lecture' || k === 'practice')) return { mode: 'sequence', sequence: r.sequence };
@@ -165,6 +183,11 @@ export function buildRouter(holder: DBHolder): Router {
       b.sessionRule ? JSON.stringify(validRule(b.sessionRule)) : c.session_rule, b.archived === undefined ? c.archived : b.archived ? 1 : 0, c.id);
     db.audit(u.id, 'course', c.id, 'update', c, b);
   });
+  del('/courses/:id', (req, db, u) => {
+    const c = ownCourse(db, u, num(req.params.id, 'course'));
+    if (db.get('SELECT 1 FROM classes WHERE course_id = ?', c.id)) throw new AppError(409, 'Classes use this course. Archive it instead.');
+    db.tx(() => { db.run('DELETE FROM courses WHERE id = ?', c.id); db.audit(u.id, 'course', c.id, 'delete', c); });
+  });
   put('/courses/:id/template', (req, db, u) => {
     const c = ownCourse(db, u, num(req.params.id, 'course'));
     const weeks: Row[] = req.body.weeks;
@@ -179,15 +202,16 @@ export function buildRouter(holder: DBHolder): Router {
   post('/courses/:id/lessons', (req, db, u) => db.tx(() => {
     const c = ownCourse(db, u, num(req.params.id, 'course'));
     const pos = (db.get('SELECT COALESCE(MAX(position), 0) + 1 AS p FROM lessons WHERE course_id = ?', c.id) as Row).p;
-    const id = db.run('INSERT INTO lessons (course_id, position, title, objectives, description, est_minutes) VALUES (?,?,?,?,?,?)', c.id, pos, str(req.body.title, 'Lesson title'), req.body.objectives ?? null, req.body.description ?? null, req.body.estMinutes ?? null).id;
-    const labels: string[] = req.body.parts?.length ? req.body.parts : ['A'];
+    const id = db.run('INSERT INTO lessons (course_id, position, title, objectives, description, est_minutes) VALUES (?,?,?,?,?,?)', c.id, pos, str(req.body.title, 'Lesson title'), optText(req.body.objectives, 'Objectives'), optText(req.body.description, 'Description'), optMinutes(req.body.estMinutes)).id;
+    const labels = req.body.parts === undefined ? ['A'] : list<string>(req.body.parts, 'Parts', 26).map((x) => str(x, 'Part label')!);
+    if (!labels.length) labels.push('A');
     labels.forEach((label, i) => db.run('INSERT INTO lesson_parts (lesson_id, position, label) VALUES (?,?,?)', id, i + 1, label));
     return { id };
   }));
   put('/lessons/:id', (req, db, u) => {
     const l = ownLesson(db, u, num(req.params.id, 'lesson'));
     const b = req.body;
-    db.run('UPDATE lessons SET title=?, objectives=?, description=?, est_minutes=? WHERE id=?', str(b.title ?? l.title, 'Lesson title'), b.objectives ?? l.objectives, b.description ?? l.description, b.estMinutes === undefined ? l.est_minutes : b.estMinutes || null, l.id);
+    db.run('UPDATE lessons SET title=?, objectives=?, description=?, est_minutes=? WHERE id=?', str(b.title ?? l.title, 'Lesson title'), b.objectives === undefined ? l.objectives : optText(b.objectives, 'Objectives'), b.description === undefined ? l.description : optText(b.description, 'Description'), b.estMinutes === undefined ? l.est_minutes : optMinutes(b.estMinutes), l.id);
   });
   del('/lessons/:id', (req, db, u) => {
     const l = ownLesson(db, u, num(req.params.id, 'lesson'));
@@ -204,12 +228,12 @@ export function buildRouter(holder: DBHolder): Router {
   post('/lessons/:id/parts', (req, db, u) => {
     const l = ownLesson(db, u, num(req.params.id, 'lesson'));
     const pos = (db.get('SELECT COALESCE(MAX(position), 0) + 1 AS p FROM lesson_parts WHERE lesson_id = ?', l.id) as Row).p;
-    return { id: db.run('INSERT INTO lesson_parts (lesson_id, position, label, title, objectives, est_minutes) VALUES (?,?,?,?,?,?)', l.id, pos, str(req.body.label, 'Part label') ?? String.fromCharCode(64 + pos), req.body.title ?? null, req.body.objectives ?? null, req.body.estMinutes ?? null).id };
+    return { id: db.run('INSERT INTO lesson_parts (lesson_id, position, label, title, objectives, est_minutes) VALUES (?,?,?,?,?,?)', l.id, pos, str(req.body.label, 'Part label'), optText(req.body.title, 'Part title', 300), optText(req.body.objectives, 'Objectives'), optMinutes(req.body.estMinutes)).id };
   });
   put('/parts/:id', (req, db, u) => {
     const p = ownPart(db, u, num(req.params.id, 'part'));
     const b = req.body;
-    db.run('UPDATE lesson_parts SET label=?, title=?, objectives=?, est_minutes=? WHERE id=?', str(b.label ?? p.label, 'Part label'), b.title ?? p.title, b.objectives ?? p.objectives, b.estMinutes === undefined ? p.est_minutes : b.estMinutes || null, p.id);
+    db.run('UPDATE lesson_parts SET label=?, title=?, objectives=?, est_minutes=? WHERE id=?', str(b.label ?? p.label, 'Part label'), b.title === undefined ? p.title : optText(b.title, 'Part title', 300), b.objectives === undefined ? p.objectives : optText(b.objectives, 'Objectives'), b.estMinutes === undefined ? p.est_minutes : optMinutes(b.estMinutes), p.id);
   });
   del('/parts/:id', (req, db, u) => {
     const p = ownPart(db, u, num(req.params.id, 'part'));
@@ -259,6 +283,11 @@ export function buildRouter(holder: DBHolder): Router {
       if (status === 'archived') db.run("UPDATE classes SET status = 'archived' WHERE term_id = ?", t.id);
       db.audit(u.id, 'term', t.id, 'update', t, req.body);
     });
+  });
+  del('/terms/:id', (req, db, u) => {
+    const t = ownTerm(db, u, num(req.params.id, 'term'));
+    if (db.get('SELECT 1 FROM classes WHERE term_id = ?', t.id)) throw new AppError(409, 'This term has classes. Archive it instead.');
+    db.tx(() => { db.run('DELETE FROM terms WHERE id = ?', t.id); db.audit(u.id, 'term', t.id, 'delete', t); });
   });
   post('/terms/:id/clone', (req, db, u) => {
     const t = ownTerm(db, u, num(req.params.id, 'term'));
@@ -356,24 +385,24 @@ export function buildRouter(holder: DBHolder): Router {
   });
   put('/classes/:id/meetings', (req, db, u) => {
     const c = ownClass(db, u, num(req.params.id, 'class'));
-    const list: Row[] = req.body.meetings ?? [];
-    for (const m of list) {
+    const meetings = list<Row>(req.body.meetings ?? [], 'Meetings', 14);
+    for (const m of meetings) {
       if (!(Number.isInteger(m.weekday) && m.weekday >= 0 && m.weekday <= 6)) throw new AppError(422, 'Choose a weekday for every meeting.');
       if (!isTime(m.start) || !isTime(m.end) || m.end <= m.start) throw new AppError(422, 'Every meeting needs a start and end time, with the end after the start.');
     }
-    for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++)
-      if (list[i].weekday === list[j].weekday && rangesOverlap(list[i].start, list[i].end, list[j].start, list[j].end)) throw new AppError(422, 'Two meetings of this class overlap.');
+    for (let i = 0; i < meetings.length; i++) for (let j = i + 1; j < meetings.length; j++)
+      if (meetings[i].weekday === meetings[j].weekday && rangesOverlap(meetings[i].start, meetings[i].end, meetings[j].start, meetings[j].end)) throw new AppError(422, 'Two meetings of this class overlap.');
     db.tx(() => {
-      const keep = new Set(list.filter((m) => m.id).map((m) => m.id));
+      const keep = new Set(meetings.filter((m) => m.id).map((m) => m.id));
       for (const old of db.all('SELECT id FROM meetings WHERE class_id = ?', c.id)) if (!keep.has(old.id)) db.run('DELETE FROM meetings WHERE id = ?', old.id);
-      for (const m of list) {
+      for (const m of meetings) {
         if (m.id) db.run('UPDATE meetings SET weekday=?, start_time=?, end_time=?, room=? WHERE id=? AND class_id=?', m.weekday, m.start, m.end, m.room ?? null, m.id, c.id);
         else db.run('INSERT INTO meetings (class_id, weekday, start_time, end_time, room) VALUES (?,?,?,?,?)', c.id, m.weekday, m.start, m.end, m.room ?? null);
       }
-      db.audit(u.id, 'class', c.id, 'meetings.update', undefined, list);
+      db.audit(u.id, 'class', c.id, 'meetings.update', undefined, meetings);
     });
     const others = db.all(`SELECT m.*, k.code FROM meetings m JOIN classes k ON k.id = m.class_id WHERE k.teacher_id = ? AND k.term_id = ? AND k.id <> ? AND k.status <> 'archived'`, c.teacher_id, c.term_id, c.id);
-    const warnings = list.flatMap((m) => others.filter((o) => o.weekday === m.weekday && rangesOverlap(m.start, m.end, o.start_time, o.end_time)).map((o) => `Overlaps ${o.code} on the same day (${o.start_time}–${o.end_time}).`));
+    const warnings = meetings.flatMap((m) => others.filter((o) => o.weekday === m.weekday && rangesOverlap(m.start, m.end, o.start_time, o.end_time)).map((o) => `Overlaps ${o.code} on the same day (${o.start_time}–${o.end_time}).`));
     return { warnings };
   });
 
@@ -394,6 +423,11 @@ export function buildRouter(holder: DBHolder): Router {
   post('/sessions/:id/restore', (req, db, u) => plan.restoreSession(db, u, num(req.params.id, 'session')));
   post('/sessions/:id/move', (req, db, u) => plan.moveSession(db, u, num(req.params.id, 'session'), req.body));
   post('/sessions/:id/complete', (req, db, u) => plan.completeSession(db, u, num(req.params.id, 'session'), req.body));
+  del('/sessions/:id', (req, db, u) => {
+    const sess = ownSession(db, u, num(req.params.id, 'session'));
+    if (sess.gen_key || sess.moved_from_id) throw new AppError(409, 'Only make-up or extra sessions you added can be deleted. Cancel planned sessions instead.');
+    db.tx(() => { db.run('DELETE FROM sessions WHERE id = ?', sess.id); db.audit(u.id, 'session', sess.id, 'delete', sess); });
+  });
   post('/sessions/:id/reopen', (req, db, u) => plan.reopenSession(db, u, num(req.params.id, 'session')));
   get('/sessions/:id/history', (req, db, u) => {
     const s = ownSession(db, u, num(req.params.id, 'session'));
@@ -427,11 +461,17 @@ export function buildRouter(holder: DBHolder): Router {
 
   // ---- Students & roster -------------------------------------------------------------------
   get('/students', (req, db, u) => {
+    const p = readPage(req.query, 25);
     const q = `%${String(req.query.q ?? '').trim()}%`;
-    return db.all(
-      `SELECT s.*, (SELECT group_concat(c.code, ', ') FROM enrollments e JOIN classes c ON c.id = e.class_id WHERE e.student_id = s.id AND e.status = 'active') AS classes
-         FROM students s WHERE s.owner_id = ? AND (s.student_code LIKE ? OR s.name_latin LIKE ? OR s.name_km LIKE ? OR s.email LIKE ?)
-        ORDER BY s.student_code LIMIT 500`, u.id, q, q, q, q);
+    const order = readSort(req.query, { code: 's.student_code', km: 's.name_km', latin: 's.name_latin COLLATE NOCASE' }, 'code');
+    const where = 's.owner_id = ? AND (s.student_code LIKE ? OR s.name_latin LIKE ? OR s.name_km LIKE ? OR s.email LIKE ?)';
+    const params = [u.id, q, q, q, q];
+    const total = (db.get(`SELECT COUNT(*) AS n FROM students s WHERE ${where}`, ...params) as Row).n;
+    const items = db.all(
+      `SELECT s.id, s.student_code, s.name_km, s.name_latin, s.email,
+              (SELECT group_concat(c.code, ', ') FROM enrollments e JOIN classes c ON c.id = e.class_id WHERE e.student_id = s.id AND e.status = 'active') AS classes
+         FROM students s WHERE ${where} ORDER BY ${order}, s.id LIMIT ? OFFSET ?`, ...params, p.pageSize, p.offset);
+    return paged(items, total, p);
   });
   post('/students', (req, db, u) => {
     const b = req.body;
@@ -442,13 +482,18 @@ export function buildRouter(holder: DBHolder): Router {
       return { id };
     });
   });
+  del('/students/:id', (req, db, u) => {
+    const st = ownStudent(db, u, num(req.params.id, 'student'));
+    if (db.get('SELECT 1 FROM enrollments WHERE student_id = ?', st.id)) throw new AppError(409, 'This student has class history. Mark the enrollment as dropped or withdrawn instead of deleting the student.');
+    db.tx(() => { db.run('DELETE FROM students WHERE id = ?', st.id); db.audit(u.id, 'student', st.id, 'delete', st); });
+  });
   get('/students/:id', (req, db, u) => {
     const s = ownStudent(db, u, num(req.params.id, 'student'));
     const enrollments = db.all(`SELECT e.*, c.code, c.id AS class_id, t.name AS term_name, co.name AS course_name FROM enrollments e JOIN classes c ON c.id = e.class_id JOIN terms t ON t.id = c.term_id JOIN courses co ON co.id = c.course_id WHERE e.student_id = ? ORDER BY e.enrolled_on DESC, e.id DESC`, s.id);
     return {
       ...s, custom: JSON.parse(s.custom || '{}'),
       enrollments: enrollments.map((e) => {
-        const g = records.gradebook(db, u, e.class_id).rows.find((r) => r.enrollmentId === e.id);
+        const g = records.gradebook(db, u, e.class_id, { enrollmentIds: [e.id] }).rows[0];
         return { ...e, total: g?.total ?? null, label: g?.label ?? '', complete: g?.complete ?? false, attendance: g?.attendance ?? null };
       }),
     };
@@ -470,7 +515,7 @@ export function buildRouter(holder: DBHolder): Router {
   });
   post('/classes/:id/enroll', (req, db, u) => {
     const c = ownClass(db, u, num(req.params.id, 'class'));
-    const ids: number[] = req.body.studentIds ?? [];
+    const ids = list(req.body.studentIds, 'Students', 500).map((x) => num(x, 'student'));
     return db.tx(() => {
       for (const sid of ids) { ownStudent(db, u, sid); db.run('INSERT INTO enrollments (student_id, class_id, enrolled_on) VALUES (?,?,?)', sid, c.id, today(db, u)); }
       db.audit(u.id, 'class', c.id, 'enroll', undefined, ids);
@@ -480,15 +525,28 @@ export function buildRouter(holder: DBHolder): Router {
   post('/enrollments/:id/transfer', (req, db, u) => roster.transferEnrollment(db, u, num(req.params.id, 'enrollment'), num(req.body.toClassId, 'class'), req.body.note));
   post('/enrollments/:id/status', (req, db, u) => roster.setEnrollmentStatus(db, u, num(req.params.id, 'enrollment'), String(req.body.status), req.body.note));
   r.post('/import/parse', express.raw({ type: '*/*', limit: '10mb' }), wrap(async (req) => roster.parseSpreadsheet(req.body as Buffer, String(req.query.filename ?? ''))));
-  post('/classes/:id/import/validate', (req, db, u) => ({ issues: roster.validateImport(db, u, num(req.params.id, 'class'), req.body.rows ?? []) }));
-  post('/classes/:id/import/commit', (req, db, u) => roster.commitImport(db, u, num(req.params.id, 'class'), req.body.rows ?? []));
+  post('/classes/:id/import/validate', (req, db, u) => ({ issues: roster.validateImport(db, u, num(req.params.id, 'class'), list(req.body.rows, 'Rows')) }));
+  post('/classes/:id/import/commit', (req, db, u) => roster.commitImport(db, u, num(req.params.id, 'class'), list(req.body.rows, 'Rows')));
 
   // ---- Gradebook & attendance --------------------------------------------------------------
   get('/classes/:id/gradebook', (req, db, u) => records.gradebook(db, u, num(req.params.id, 'class')));
   put('/classes/:id/grade-config', (req, db, u) => records.saveConfig(db, u, num(req.params.id, 'class'), req.body));
   post('/classes/:id/grade-config/status', (req, db, u) => records.setConfigStatus(db, u, num(req.params.id, 'class'), req.body.status));
   get('/sessions/:id/attendance', (req, db, u) => records.sessionAttendance(db, u, num(req.params.id, 'session')));
-  get('/classes/:id/attendance', (req, db, u) => records.attendanceSummary(db, u, num(req.params.id, 'class')));
+  get('/classes/:id/attendance', (req, db, u) => {
+    const p = readPage(req.query, 50);
+    const r = records.attendanceSummary(db, u, num(req.params.id, 'class'), { offset: p.offset, pageSize: p.pageSize, q: String(req.query.q ?? '') });
+    return { ...r, page: p.page, pageSize: p.pageSize, pages: Math.max(1, Math.ceil(r.total / p.pageSize)) };
+  });
+  get('/audit', (req, db, u) => {
+    const p = readPage(req.query, 25);
+    const entity = String(req.query.entity ?? '');
+    const where = `${u.role === 'admin' ? '1' : 'a.user_id = ?'} ${entity ? 'AND a.entity = ?' : ''}`;
+    const params = [...(u.role === 'admin' ? [] : [u.id]), ...(entity ? [entity] : [])];
+    const total = (db.get(`SELECT COUNT(*) AS n FROM audit_log a WHERE ${where}`, ...params) as Row).n;
+    const items = db.all(`SELECT a.id, a.entity, a.entity_id, a.action, a.at, u.name AS user_name FROM audit_log a LEFT JOIN users u ON u.id = a.user_id WHERE ${where} ORDER BY a.id DESC LIMIT ? OFFSET ?`, ...params, p.pageSize, p.offset);
+    return paged(items, total, p);
+  });
   post('/sync', (req, db, u) => ({ results: records.applySync(db, u, req.body.ops) }));
 
   // ---- Dashboard & pay ---------------------------------------------------------------------

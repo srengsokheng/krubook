@@ -8,14 +8,18 @@ export class ApiError extends Error {
 
 export async function api<T = any>(path: string, opts: { method?: string; body?: unknown; raw?: BodyInit; headers?: Record<string, string> } = {}): Promise<T> {
   let res: Response;
+  // Fail instead of hanging forever on a stalled connection; exports and restores get longer.
+  const timeout = AbortSignal.timeout(/^\/(export|restore|backup|import)/.test(path) ? 180_000 : 30_000);
   try {
     res = await fetch(`/api${path}`, {
+      signal: timeout,
       method: opts.method ?? (opts.body !== undefined || opts.raw ? 'POST' : 'GET'),
       headers: opts.raw ? opts.headers : { 'content-type': 'application/json', ...opts.headers },
       body: opts.raw ?? (opts.body === undefined ? undefined : JSON.stringify(opts.body)),
       credentials: 'same-origin',
     });
-  } catch {
+  } catch (e) {
+    if ((e as Error).name === 'TimeoutError') throw new ApiError(0, 'The server took too long to answer. Try again.');
     throw new ApiError(0, 'You are offline or the server cannot be reached.');
   }
   const offlineCopy = res.headers.get('x-krubook-offline') === '1';

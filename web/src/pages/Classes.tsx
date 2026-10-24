@@ -18,7 +18,7 @@ export function Classes() {
   return (
     <div className="page">
       <div className="page-head">
-        <div><h1>{t('Classes')}</h1><p className="sub">Each class has its own start date, meeting times and plan.</p></div>
+        <div><h1>{t('Classes')}</h1></div>
         <div className="toolbar">
           <label className="check"><input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} /> Show archived</label>
           <button className="btn primary" onClick={() => setCreating(true)}><Icon name="plus" />New class</button>

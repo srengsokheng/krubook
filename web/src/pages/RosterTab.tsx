@@ -93,14 +93,14 @@ function EnrollmentAction({ cls, row, onClose, onDone }: { cls: any; row: any; o
 function AddStudent({ cls, onClose, onDone }: { cls: any; onClose: () => void; onDone: () => void }) {
   const [f, setF] = useState({ code: '', nameKm: '', nameLatin: '', gender: '', email: '', phone: '' });
   const [existing, setExisting] = useState('');
-  const { data: found } = useApi<any[]>(existing.trim().length >= 2 ? `/students?q=${encodeURIComponent(existing.trim())}` : null);
+  const { data: found } = useApi<any>(existing.trim().length >= 2 ? `/students?q=${encodeURIComponent(existing.trim())}&pageSize=10` : null);
   const { busy, run } = useAction();
   return (
     <Dialog title={`Add a student to ${cls.code}`} onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={busy || !f.code} onClick={() => run(() => api('/students', { body: { ...f, classId: cls.id } }), 'Student added').then((r) => { if (r) { onDone(); onClose(); } })}>Create and enroll</button></>}>
       <Field label="Find an existing student"><input id="as-find" value={existing} onChange={(e) => setExisting(e.target.value)} placeholder="ID or name" /></Field>
-      {found && found.length > 0 && (
+      {found && found.items.length > 0 && (
         <ul className="ledger panel">
-          {found.slice(0, 6).map((s) => (
+          {found.items.map((s: any) => (
             <li key={s.id}><span className="mono">{s.student_code}</span><span className="grow">{s.name_km} {s.name_latin} <span className="faint xs">{s.classes}</span></span>
               <button className="btn sm" disabled={busy} onClick={() => run(() => api(`/classes/${cls.id}/enroll`, { body: { studentIds: [s.id] } }), 'Student enrolled').then((r) => { if (r) { onDone(); onClose(); } })}>Enroll</button></li>
           ))}

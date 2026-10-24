@@ -97,34 +97,48 @@ export function setConfigStatus(db: DB, u: User, classId: number, status: 'draft
 // ---------------------------------------------------------------------------------------------
 // Gradebook
 
-function attendanceMarks(db: DB, classId: number): Map<number, AttendanceMark[]> {
+const inList = (ids: number[]) => (ids.length ? ids.map(Number).join(',') : '0');
+
+function attendanceMarks(db: DB, classId: number, enrollmentIds?: number[]): Map<number, AttendanceMark[]> {
+  // Counted in SQL: one row per student and mark instead of one row per roll-call entry.
   const rows = db.all(
-    `SELECT a.enrollment_id, a.status FROM attendance a JOIN sessions s ON s.id = a.session_id
-      WHERE s.class_id = ? AND s.status IN ('planned','completed')`,
+    `SELECT a.enrollment_id, a.status, COUNT(*) AS n FROM attendance a JOIN sessions s ON s.id = a.session_id
+      WHERE s.class_id = ? AND s.status IN ('planned','completed') ${enrollmentIds ? `AND a.enrollment_id IN (${inList(enrollmentIds)})` : ''}
+      GROUP BY a.enrollment_id, a.status`,
     classId,
   );
   const m = new Map<number, AttendanceMark[]>();
-  for (const r of rows) m.set(r.enrollment_id, [...(m.get(r.enrollment_id) ?? []), r.status]);
+  for (const r of rows) {
+    const list = m.get(r.enrollment_id) ?? [];
+    for (let i = 0; i < r.n; i++) list.push(r.status);
+    m.set(r.enrollment_id, list);
+  }
   return m;
 }
 
-export function gradebook(db: DB, u: User, classId: number) {
+/**
+ * The gradebook of one class. `only` limits it to some enrollments (a student's page, the
+ * dashboard's at-risk list) so those views do not compute every student of every class.
+ */
+export function gradebook(db: DB, u: User, classId: number, only?: { enrollmentIds?: number[]; activeOnly?: boolean }) {
   const cls = ownClass(db, u, classId);
   const { row, config } = loadConfig(db, classId);
   const check = checkConfig(config);
+  const filter = `${only?.enrollmentIds ? `AND e.id IN (${inList(only.enrollmentIds)})` : ''} ${only?.activeOnly ? "AND e.status = 'active'" : ''}`;
   const students = db.all(
     `SELECT e.id AS enrollment_id, e.status AS enrollment_status, s.id AS student_id, s.student_code, s.name_km, s.name_latin, s.gender
-       FROM enrollments e JOIN students s ON s.id = e.student_id WHERE e.class_id = ?
+       FROM enrollments e JOIN students s ON s.id = e.student_id WHERE e.class_id = ? ${filter}
       ORDER BY CASE e.status WHEN 'active' THEN 0 WHEN 'completed' THEN 0 ELSE 1 END, s.student_code`,
     classId,
   );
+  const ids = only ? students.map((x) => x.enrollment_id) : undefined;
   const scoreRows = db.all(
-    `SELECT sc.* FROM scores sc JOIN grade_components c ON c.id = sc.component_id WHERE c.config_id = ?`,
+    `SELECT sc.enrollment_id, sc.component_id, sc.value, sc.version FROM scores sc JOIN grade_components c ON c.id = sc.component_id WHERE c.config_id = ? ${ids ? `AND sc.enrollment_id IN (${inList(ids)})` : ''}`,
     row.id,
   );
   const scores = new Map<number, Record<number, { value: number; version: number }>>();
   for (const s of scoreRows) scores.set(s.enrollment_id, { ...(scores.get(s.enrollment_id) ?? {}), [s.component_id]: { value: s.value, version: s.version } });
-  const marks = attendanceMarks(db, classId);
+  const marks = attendanceMarks(db, classId, ids);
   const attComp = config.components.find((c) => c.kind === 'attendance');
 
   const rows = students.map((st) => {
@@ -171,7 +185,8 @@ export function sessionAttendance(db: DB, u: User, sessionId: number) {
   };
 }
 
-export function attendanceSummary(db: DB, u: User, classId: number) {
+/** Attendance matrix for a class. With `page`, only that page of students (and their cells) is returned. */
+export function attendanceSummary(db: DB, u: User, classId: number, page?: { offset: number; pageSize: number; q?: string }) {
   ownClass(db, u, classId);
   const { config } = loadConfig(db, classId);
   const attComp = config.components.find((c) => c.kind === 'attendance');
@@ -180,17 +195,23 @@ export function attendanceSummary(db: DB, u: User, classId: number) {
        FROM sessions s WHERE s.class_id = ? AND s.status NOT IN ('moved') ORDER BY s.date, s.start_time`,
     classId,
   );
-  const marks = attendanceMarks(db, classId);
+  const q = page?.q?.trim() ? `%${page.q.trim()}%` : null;
+  const where = `e.class_id = ? ${q ? 'AND (st.student_code LIKE ? OR st.name_latin LIKE ? OR st.name_km LIKE ?)' : ''}`;
+  const params = q ? [classId, q, q, q] : [classId];
+  const total = (db.get(`SELECT COUNT(*) AS n FROM enrollments e JOIN students st ON st.id = e.student_id WHERE ${where}`, ...params) as Row).n;
   const students = db.all(
-    `SELECT e.id, e.status, st.student_code, st.name_km, st.name_latin FROM enrollments e JOIN students st ON st.id = e.student_id WHERE e.class_id = ? ORDER BY st.student_code`,
-    classId,
+    `SELECT e.id, e.status, st.student_code, st.name_km, st.name_latin FROM enrollments e JOIN students st ON st.id = e.student_id WHERE ${where} ORDER BY st.student_code ${page ? 'LIMIT ? OFFSET ?' : ''}`,
+    ...params, ...(page ? [page.pageSize, page.offset] : []),
   );
-  const cells = db.all('SELECT a.session_id, a.enrollment_id, a.status FROM attendance a JOIN sessions s ON s.id = a.session_id WHERE s.class_id = ?', classId);
+  const ids = students.map((x) => x.id);
+  const marks = attendanceMarks(db, classId, page ? ids : undefined);
+  const cells = db.all(`SELECT a.session_id, a.enrollment_id, a.status FROM attendance a JOIN sessions s ON s.id = a.session_id WHERE s.class_id = ? ${page ? `AND a.enrollment_id IN (${inList(ids)})` : ''}`, classId);
   return {
     sessions,
     rule: config.attendanceRule,
     max: attComp?.max ?? null,
     cells,
+    total,
     students: students.map((s) => ({ enrollmentId: s.id, enrollmentStatus: s.status, code: s.student_code, nameKm: s.name_km, nameLatin: s.name_latin, ...attendanceScore(marks.get(s.id) ?? [], attComp?.max ?? 0, config.attendanceRule) })),
   };
 }

@@ -12,7 +12,7 @@ export function Courses() {
   return (
     <div className="page">
       <div className="page-head">
-        <div><h1>{t('Courses')}</h1><p className="sub">A course holds the curriculum and the 17-week template. Classes follow it, but their own teaching history is kept separately.</p></div>
+        <div><h1>{t('Courses')}</h1></div>
         <button className="btn primary" onClick={() => setCreating(true)}><Icon name="plus" />New course</button>
       </div>
       {loading && !data ? <Loading /> : !data?.length ? <div className="panel"><Empty title="No courses yet" action={<button className="btn primary" onClick={() => setCreating(true)}>Create a course</button>} /></div> : (
@@ -66,6 +66,7 @@ export function CourseDetail() {
   const [editing, setEditing] = useState(false);
   const [lessonForm, setLessonForm] = useState<any | null>(null);
   const [matForm, setMatForm] = useState<any | null>(null);
+  const [partForm, setPartForm] = useState<any | null>(null);
   const [confirm, setConfirm] = useState<null | { title: string; body: string; go: () => void }>(null);
   const [template, setTemplate] = useState<any[] | null>(null);
   const { busy, run } = useAction();
@@ -90,7 +91,6 @@ export function CourseDetail() {
           <button className="btn" onClick={() => call(`/courses/${c.id}`, 'PUT', { archived: !c.archived }, c.archived ? 'Course restored' : 'Course archived')}>{c.archived ? 'Restore' : 'Archive'}</button>
         </div>
       </div>
-      <Notice tone="info">Editing the curriculum changes future plans only. Lessons already taught in a class stay in that class’s record and cannot be deleted.</Notice>
 
       <div className="grid side">
         <section className="panel">
@@ -115,13 +115,14 @@ export function CourseDetail() {
                         <span className="small" style={{ flex: 1 }}>{p.title ?? <span className="faint">Part {p.label}</span>}{p.taught && <span className="pill" style={{ marginLeft: 6 }}>taught</span>}</span>
                         <button className="btn sm ghost" aria-label="Move part up" disabled={pi === 0} onClick={() => call(`/parts/${p.id}/move`, 'POST', { direction: 'up' })}><Icon name="up" /></button>
                         <button className="btn sm ghost" aria-label="Move part down" disabled={pi === l.parts.length - 1} onClick={() => call(`/parts/${p.id}/move`, 'POST', { direction: 'down' })}><Icon name="down" /></button>
-                        <button className="btn sm ghost" aria-label="Rename part" onClick={() => { const v = window.prompt?.('Part title', p.title ?? ''); if (v != null) call(`/parts/${p.id}`, 'PUT', { title: v }); }}><Icon name="edit" /></button>
+                        <button className="btn sm ghost" aria-label="Rename part" onClick={() => setPartForm({ ...p, code: `${l.number}${p.label}` })}><Icon name="edit" /></button>
                         {!p.taught && l.parts.length > 1 && <button className="btn sm ghost" aria-label="Delete part" onClick={() => setConfirm({ title: `Delete part ${l.number}${p.label}?`, body: 'Its materials stay with the lesson.', go: () => call(`/parts/${p.id}`, 'DELETE', undefined, 'Part deleted') })}><Icon name="trash" /></button>}
                       </div>
                     ))}
                     <button className="btn sm ghost" style={{ alignSelf: 'flex-start' }} onClick={() => call(`/lessons/${l.id}/parts`, 'POST', { label: String.fromCharCode(65 + l.parts.length) }, 'Part added')}><Icon name="plus" />Add part {String.fromCharCode(65 + l.parts.length)}</button>
                   </div>
-                  <div style={{ width: '100%' }}>
+                  <details className="more" style={{ width: '100%' }} open={l.materials.some((m: any) => m.status !== 'ready') && l.materials.length <= 3}>
+                    <summary style={{ padding: '6px 0' }}>Materials · {l.materials.filter((m: any) => m.status === 'ready').length}/{l.materials.length} ready</summary>
                     {l.materials.map((m: any) => (
                       <div key={m.id} className="row" style={{ padding: '4px 0', borderTop: '1px dashed var(--rule)' }}>
                         <span className="pill">{m.kind}</span>
@@ -134,7 +135,7 @@ export function CourseDetail() {
                       </div>
                     ))}
                     <button className="btn sm ghost" onClick={() => setMatForm({ lessonId: l.id, parts: l.parts, kind: 'slides', status: 'not_started' })}><Icon name="plus" />Add material</button>
-                  </div>
+                  </details>
                 </li>
               ))}
             </ul>
@@ -169,6 +170,7 @@ export function CourseDetail() {
       {editing && <CourseForm course={c} onClose={() => setEditing(false)} onDone={reload} />}
       {lessonForm && <LessonForm courseId={c.id} lesson={lessonForm.id ? lessonForm : null} onClose={() => setLessonForm(null)} onDone={reload} />}
       {matForm && <MaterialForm m={matForm} onClose={() => setMatForm(null)} onDone={reload} />}
+      {partForm && <PartForm p={partForm} onClose={() => setPartForm(null)} onDone={reload} />}
       {confirm && <Confirm title={confirm.title} body={confirm.body} confirmLabel="Delete" danger onConfirm={confirm.go} onClose={() => setConfirm(null)} />}
     </div>
   );
@@ -207,6 +209,20 @@ function MaterialForm({ m, onClose, onDone }: { m: any; onClose: () => void; onD
       </div>
       <Field label="Title"><input id="m-title" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></Field>
       <Field label="Link" hint="Google Drive, GitHub or any URL."><input id="m-url" type="url" value={f.url} onChange={(e) => setF({ ...f, url: e.target.value })} /></Field>
+    </Dialog>
+  );
+}
+
+function PartForm({ p, onClose, onDone }: { p: any; onClose: () => void; onDone: () => void }) {
+  const [f, setF] = useState({ label: p.label, title: p.title ?? '', estMinutes: p.est_minutes ?? '' });
+  const { busy, run } = useAction();
+  return (
+    <Dialog title={`Part ${p.code}`} onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={busy || !f.label.trim()} onClick={() => run(() => api(`/parts/${p.id}`, { method: 'PUT', body: f }), 'Part saved').then((r) => { if (r) { onDone(); onClose(); } })}>Save</button></>}>
+      <div className="form-grid">
+        <Field label="Label"><input id="pf-label" value={f.label} maxLength={4} onChange={(e) => setF({ ...f, label: e.target.value })} /></Field>
+        <Field label="Minutes (optional)"><input id="pf-min" type="number" min={1} value={f.estMinutes} onChange={(e) => setF({ ...f, estMinutes: e.target.value })} /></Field>
+      </div>
+      <Field label="Title"><input id="pf-title" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></Field>
     </Dialog>
   );
 }

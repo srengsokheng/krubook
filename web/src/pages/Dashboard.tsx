@@ -1,11 +1,13 @@
 import { Link } from 'react-router-dom';
 import { useApi } from '../api.ts';
 import { useI18n } from '../i18n.tsx';
-import { D, Empty, ErrorNote, Kind, Loading, MaterialStatus, money, Notice, ProgressPill, SessionStatus } from '../ui.tsx';
+import { D, Empty, ErrorNote, Icon, Kind, Loading, MaterialStatus, money, ProgressPill, SessionStatus } from '../ui.tsx';
 import { formatDate } from '../../../shared/dates.ts';
 
 const partLabel = (p: any) => (p ? `${p.code} ${p.title ?? ''}` : null);
 
+// The dashboard answers "what do I act on now?": today's classes and anything overdue first;
+// progress and pay are summaries that link to their own pages.
 export function Dashboard() {
   const { t, lang } = useI18n();
   const { data: d, error, loading, reload } = useApi<any>('/dashboard');
@@ -13,7 +15,14 @@ export function Dashboard() {
   if (loading && !d) return <div className="page"><Loading rows={8} /></div>;
   if (!d) return null;
   const m = d.month;
-  const activeClasses = d.progress.filter((p: any) => p.status === 'active');
+  const unrecorded = d.progress.filter((p: any) => p.unrecorded > 0);
+  const behind = d.progress.filter((p: any) => p.progress.status === 'behind');
+  const attention = [
+    ...d.proposals.map((p: any) => ({ key: `p${p.id}`, to: `/classes/${p.class_id}/plan`, text: <><b className="mono">{p.code}</b> schedule change to review</>, tone: 'warn' })),
+    ...unrecorded.map((p: any) => ({ key: `u${p.classId}`, to: `/classes/${p.classId}/plan`, text: <><b className="mono">{p.code}</b> {p.unrecorded} past session{p.unrecorded > 1 ? 's' : ''} not recorded</>, tone: 'warn' })),
+    ...(d.notReady.length ? [{ key: 'mat', to: `/classes/${d.notReady[0].classId}`, text: <>{d.notReady.length} material{d.notReady.length > 1 ? 's' : ''} not ready for this week</>, tone: 'warn' }] : []),
+    ...(d.atRiskTotal ? [{ key: 'risk', to: `/classes/${d.atRisk[0].classId}/grades`, text: <>{d.atRiskTotal} student{d.atRiskTotal > 1 ? 's' : ''} at risk of failing</>, tone: 'bad' }] : []),
+  ];
 
   return (
     <div className="page">
@@ -21,37 +30,15 @@ export function Dashboard() {
         <div>
           <div className="eyebrow">{formatDate(d.today, lang, true)}</div>
           <h1>{d.todays.length ? `${d.todays.length} ${d.todays.length === 1 ? 'class' : 'classes'} today` : 'No classes today'}</h1>
-          {d.next && (
-            <p className="sub">
-              {t('Up next')}: <b className="mono">{d.next.code}</b> {d.next.date === d.today ? 'at' : `on ${formatDate(d.next.date, lang)},`} <span className="mono">{d.next.start}</span>
-              {d.next.part && <> — {partLabel(d.next.part)}</>}
-            </p>
-          )}
+          {d.next && <p className="sub">{t('Up next')}: <b className="mono">{d.next.code}</b> {d.next.date === d.today ? '' : formatDate(d.next.date, lang)} <span className="mono">{d.next.start}</span>{d.next.part && <> · {partLabel(d.next.part)}</>}</p>}
         </div>
-        <div className="toolbar">
-          <Link className="btn" to="/timetable">{t('Timetable')}</Link>
-          {d.next && <Link className="btn primary" to={`/classes/${d.next.classId}`}>Open {d.next.code}</Link>}
-        </div>
-      </div>
-
-      {d.proposals.length > 0 && (
-        <Notice tone="warn">
-          <b>Schedule changes waiting for your review:</b>{' '}
-          {d.proposals.map((p: any, i: number) => <span key={p.id}>{i > 0 && ', '}<Link to={`/classes/${p.class_id}/plan`}>{p.code}</Link> ({p.reason})</span>)}
-        </Notice>
-      )}
-
-      <div className="figures">
-        <div className="figure"><span className="eyebrow">{t('Sessions this month')}</span><span className="value">{m?.taughtSessions ?? 0}<small> taught · {m?.plannedSessions ?? 0} ahead</small></span></div>
-        <div className="figure"><span className="eyebrow">{t('Hours this month')}</span><span className="value">{((m?.taughtMinutes ?? 0) / 60).toFixed(1)}<small> h</small></span></div>
-        <div className="figure"><span className="eyebrow">{t('Estimated pay')}</span><span className="value">{money(m?.estimatedTotal ?? 0, d.currency)}</span><span className="faint xs">+ {money(m?.expected ?? 0, d.currency)} expected if planned sessions run</span></div>
-        <div className="figure"><span className="eyebrow">{t('Students at risk')}</span><span className="value">{d.atRiskTotal}<small> across {activeClasses.length} classes</small></span></div>
+        {d.next && <Link className="btn primary" to={`/classes/${d.next.classId}`}>Open {d.next.code}</Link>}
       </div>
 
       <div className="grid side">
-        <div className="stack" style={{ gap: 16 }}>
+        <div className="stack" style={{ gap: 20 }}>
           <section className="panel">
-            <div className="panel-head"><h2>{t('Teaching today')}</h2><span className="faint small">{formatDate(d.today, lang)}</span></div>
+            <div className="panel-head"><h2>{t('Teaching today')}</h2></div>
             {d.todays.length ? (
               <ul className="ledger">
                 {d.todays.map((s: any) => (
@@ -59,93 +46,92 @@ export function Dashboard() {
                     <span className="swatch" style={{ background: s.color }} />
                     <span className="when">{s.start}–{s.end}</span>
                     <div className="grow stack" style={{ gap: 4 }}>
-                      <div className="row"><Link to={`/classes/${s.classId}`} className="mono" style={{ fontWeight: 600 }}>{s.code}</Link><Kind kind={s.kind} /><SessionStatus status={s.status} />{s.checkpoint && <span className="marker small">{s.checkpoint}</span>}</div>
-                      <div className="small">{s.part ? partLabel(s.part) : s.note ?? s.activity.replace('_', ' ')}</div>
-                      {s.materials.length > 0 && <div className="row small">{s.materials.map((mat: any) => <span key={mat.id} className="row" style={{ gap: 4 }}>{mat.title} <MaterialStatus status={mat.status} /></span>)}</div>}
+                      <div className="row"><Link to={`/classes/${s.classId}`} className="mono" style={{ fontWeight: 600 }}>{s.code}</Link><Kind kind={s.kind} />{s.status !== 'planned' && <SessionStatus status={s.status} />}{s.checkpoint && <span className="marker small">{s.checkpoint}</span>}</div>
+                      <div className="small muted">{s.part ? partLabel(s.part) : s.note ?? s.activity.replace('_', ' ')}</div>
+                      {s.materials.some((x: any) => x.status !== 'ready') && <div className="row small">{s.materials.filter((x: any) => x.status !== 'ready').map((x: any) => <span key={x.id} className="row" style={{ gap: 4 }}>{x.title} <MaterialStatus status={x.status} /></span>)}</div>}
                     </div>
                     {s.status === 'planned' && <Link className="btn sm" to={`/classes/${s.classId}/plan?session=${s.id}`}>{t('Mark taught')}</Link>}
                   </li>
                 ))}
               </ul>
-            ) : <Empty title="Nothing on the timetable today">{d.next ? <>Next class: {d.next.code} on <D date={d.next.date} />.</> : 'Generate a term plan for a class to fill the timetable.'}</Empty>}
+            ) : <Empty title="Nothing scheduled today">{d.next ? <>Next: {d.next.code} on <D date={d.next.date} />.</> : 'Generate a term plan for a class to fill the timetable.'}</Empty>}
           </section>
 
+          {attention.length > 0 && (
+            <section className="panel">
+              <div className="panel-head"><h2>Needs attention</h2></div>
+              <ul className="ledger">
+                {attention.map((a) => (
+                  <li key={a.key} style={{ alignItems: 'center' }}>
+                    <span className="dot" style={{ background: a.tone === 'bad' ? 'var(--bad)' : 'var(--warn)' }} />
+                    <span className="grow small">{a.text}</span>
+                    <Link className="btn sm ghost" to={a.to}>Open<Icon name="right" /></Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
           <section className="panel">
-            <div className="panel-head"><h2>{t('Class progress')}</h2><Link to="/classes" className="small">All classes</Link></div>
+            <div className="panel-head"><h2>{t('Class progress')}</h2>{behind.length > 0 && <span className="pill bad">{behind.length} behind</span>}</div>
             {d.progress.length ? (
-              <div className="table-wrap">
-                <table className="table">
-                  <thead><tr><th>Class</th><th>Status</th><th>Taught / planned</th><th>{t('Next lesson')}</th><th /></tr></thead>
-                  <tbody>
-                    {d.progress.map((p: any) => (
-                      <tr key={p.classId}>
-                        <td><span className="row" style={{ gap: 8 }}><span className="dot" style={{ background: p.color }} /><Link className="mono" to={`/classes/${p.classId}`}>{p.code}</Link></span><div className="faint xs">{p.courseName}</div></td>
-                        <td><ProgressPill status={p.progress.status} reason={p.progress.reason} /></td>
-                        <td style={{ minWidth: 150 }}>
-                          <div className="progress-track" title={`${p.progress.actual} taught, ${p.progress.expected} planned by today, ${p.progress.totalParts} in total`}>
-                            <div className="bar" style={{ width: `${(p.progress.actual / Math.max(1, p.progress.totalParts)) * 100}%` }} />
-                            <div className="plan" style={{ left: `${(p.progress.expected / Math.max(1, p.progress.totalParts)) * 100}%` }} />
-                          </div>
-                          <div className="mono xs faint" style={{ marginTop: 4 }}>{p.progress.actual} / {p.progress.expected} of {p.progress.totalParts}</div>
-                        </td>
-                        <td className="small">{p.nextPart ? `${p.nextPart.code} ${p.nextPart.title ?? p.nextPart.lessonTitle}` : '—'}</td>
-                        <td>{p.unrecorded > 0 && <Link to={`/classes/${p.classId}/plan`} className="pill warn">{p.unrecorded} to record</Link>}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <ul className="ledger">
+                {d.progress.map((p: any) => (
+                  <li key={p.classId} style={{ alignItems: 'center' }}>
+                    <span className="dot" style={{ background: p.color }} />
+                    <Link className="mono" to={`/classes/${p.classId}`} style={{ minWidth: 56, fontWeight: 600 }}>{p.code}</Link>
+                    <div className="grow" style={{ minWidth: 0 }}>
+                      <div className="progress-track" title={p.progress.reason}>
+                        <div className="bar" style={{ width: `${(p.progress.actual / Math.max(1, p.progress.totalParts)) * 100}%` }} />
+                        <div className="plan" style={{ left: `${(p.progress.expected / Math.max(1, p.progress.totalParts)) * 100}%` }} />
+                      </div>
+                      <div className="faint xs" style={{ marginTop: 4 }}>Next: {p.nextPart ? `${p.nextPart.code} ${p.nextPart.title ?? p.nextPart.lessonTitle}` : 'all lessons covered'}</div>
+                    </div>
+                    <ProgressPill status={p.progress.status} reason={p.progress.reason} />
+                  </li>
+                ))}
+              </ul>
             ) : <Empty title="No active classes" action={<Link className="btn" to="/classes">Create a class</Link>} />}
           </section>
         </div>
 
-        <div className="stack" style={{ gap: 16 }}>
+        <div className="stack" style={{ gap: 20 }}>
           <section className="panel">
-            <div className="panel-head"><h2>{t('Materials to prepare')}</h2><span className="faint small">next 7 days</span></div>
-            {d.notReady.length ? (
-              <ul className="ledger">
-                {d.notReady.slice(0, 10).map((mat: any) => (
-                  <li key={`${mat.id}-${mat.sessionId}`}>
-                    <span className="when"><D date={mat.date} /></span>
-                    <div className="grow"><div className="small"><b className="mono">{mat.code}</b> {mat.part} · {mat.title}</div></div>
-                    <MaterialStatus status={mat.status} />
-                  </li>
-                ))}
-              </ul>
-            ) : <Empty title="Everything for the next 7 days is ready" />}
-          </section>
-
-          <section className="panel">
-            <div className="panel-head"><h2>{t('Labs and exams ahead')}</h2><span className="faint small">next 3 weeks</span></div>
+            <div className="panel-head"><h2>Coming up</h2><span className="faint small">3 weeks</span></div>
             {d.milestones.length ? (
               <ul className="ledger">
-                {d.milestones.map((s: any) => (
+                {d.milestones.slice(0, 8).map((s: any) => (
                   <li key={s.id}>
                     <span className="when"><D date={s.date} /></span>
                     <div className="grow small"><b className="mono">{s.code}</b> {s.checkpoint ?? (s.activity === 'final' ? 'Final exam' : 'Midterm exam')}</div>
-                    <span className="mono xs faint">{s.start}</span>
                   </li>
                 ))}
               </ul>
-            ) : <Empty title="No labs or exams in the next three weeks" />}
+            ) : <div className="panel-body faint small">No labs or exams in the next three weeks.</div>}
           </section>
 
           <section className="panel">
-            <div className="panel-head"><h2>{t('Students at risk')}</h2><span className="faint small">{d.atRiskTotal}</span></div>
-            {d.atRisk.length ? (
+            <div className="panel-head"><h2>This month</h2><Link className="small" to="/pay">Pay</Link></div>
+            <dl className="kv panel-body">
+              <dt>Sessions taught</dt><dd className="mono">{m?.taughtSessions ?? 0} <span className="faint">· {m?.plannedSessions ?? 0} still planned</span></dd>
+              <dt>Hours</dt><dd className="mono">{((m?.taughtMinutes ?? 0) / 60).toFixed(1)}</dd>
+              <dt>Earned</dt><dd className="mono">{money(m?.total ?? 0, d.currency)}</dd>
+            </dl>
+          </section>
+
+          {d.atRisk.length > 0 && (
+            <section className="panel">
+              <div className="panel-head"><h2>{t('Students at risk')}</h2><span className="faint small">{d.atRiskTotal}</span></div>
               <ul className="ledger">
-                {d.atRisk.map((s: any) => (
+                {d.atRisk.slice(0, 5).map((s: any) => (
                   <li key={s.enrollmentId}>
-                    <div className="grow">
-                      <div className="small"><Link to={`/classes/${s.classId}/grades`}>{s.nameKm ?? s.nameLatin}</Link> <span className="faint">{s.nameLatin}</span></div>
-                      <div className="faint xs">{s.code} · {s.studentCode} · {s.reason}</div>
-                    </div>
+                    <div className="grow small"><Link to={`/classes/${s.classId}/grades`}>{s.nameKm ?? s.nameLatin}</Link> <span className="faint xs mono">{s.code}</span></div>
                     <span className="mono small">{s.total}</span>
                   </li>
                 ))}
               </ul>
-            ) : <Empty title="No students at risk right now">Based on the scores entered so far.</Empty>}
-          </section>
+            </section>
+          )}
         </div>
       </div>
     </div>

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { download, isOfflineCopy, useApi } from '../api.ts';
 import { useI18n } from '../i18n.tsx';
-import { Empty, ErrorNote, Icon, Kind, Loading, Notice, fmt, useToast } from '../ui.tsx';
+import { Empty, ErrorNote, Icon, Kind, Loading, Notice, Pager, fmt, useDebounced, useToast } from '../ui.tsx';
 import { enqueue, onApplied, pendingOps } from '../offline.ts';
 import { formatDate } from '../../../shared/dates.ts';
 
@@ -123,7 +123,12 @@ function Roll({ sessionId, cls }: { sessionId: number; cls: any }) {
 }
 
 function Summary({ cls }: { cls: any }) {
-  const { data, error, loading, reload } = useApi<any>(`/classes/${cls.id}/attendance`);
+  const [page, setPage] = useState(1);
+  const [size, setSize] = useState(50);
+  const [text, setText] = useState('');
+  const q = useDebounced(text);
+  useEffect(() => setPage(1), [q]);
+  const { data, error, loading, reload } = useApi<any>(`/classes/${cls.id}/attendance?page=${page}&pageSize=${size}&q=${encodeURIComponent(q)}`);
   const { lang } = useI18n();
   if (error) return <ErrorNote error={error} retry={reload} />;
   if (loading && !data) return <Loading rows={8} />;
@@ -134,7 +139,10 @@ function Summary({ cls }: { cls: any }) {
   const color: Record<string, string> = { present: 'var(--ok)', late: 'var(--warn)', absent: 'var(--bad)', excused: 'var(--ink-3)' };
   return (
     <div className="stack">
-      <p className="muted small">Score out of {data.max ?? '—'}: late counts as {data.rule.lateCredit} of a present mark; excused absences are {data.rule.excused === 'exclude' ? 'not counted' : `counted as ${data.rule.excused}`}. Only sessions with a roll call count. Change this in the gradebook’s grading setup.</p>
+      <div className="row between">
+        <div className="search" style={{ minWidth: 200 }}><Icon name="search" /><input aria-label="Find student" value={text} onChange={(e) => setText(e.target.value)} placeholder="Find student" /></div>
+        <span className="faint xs" title="Change this in the gradebook's grading setup.">Score /{data.max ?? '—'} · late = {data.rule.lateCredit} · excused {data.rule.excused === 'exclude' ? 'not counted' : `as ${data.rule.excused}`}</span>
+      </div>
       <div className="sheet-wrap">
         <table className="sheet">
           <thead><tr><th className="sticky-1">ID</th><th className="sticky-2">Name</th>{held.map((s: any) => <th key={s.id} title={s.date}>{formatDate(s.date, lang).split(' ').slice(1).join(' ')}</th>)}<th>%</th><th>Score</th></tr></thead>
@@ -151,6 +159,7 @@ function Summary({ cls }: { cls: any }) {
           </tbody>
         </table>
       </div>
+      <Pager meta={data} onPage={setPage} onSize={(n) => { setSize(n); setPage(1); }} noun="students" />
     </div>
   );
 }

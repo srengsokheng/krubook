@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, NavLink, Route, Routes, useParams } from 'react-router-dom';
 import { api, download, useApi } from '../api.ts';
 import { useI18n } from '../i18n.tsx';
-import { D, ErrorNote, Field, Icon, Kind, Loading, MaterialStatus, Notice, Pill, ProgressPill, useAction, useToast } from '../ui.tsx';
+import { D, ErrorNote, Field, Kind, Loading, MaterialStatus, Menu, Notice, Pill, ProgressPill, useAction, useToast } from '../ui.tsx';
 import { PlanTab } from './PlanTab.tsx';
 import { RosterTab } from './RosterTab.tsx';
 import { AttendanceTab } from './AttendanceTab.tsx';
@@ -26,7 +26,11 @@ export function ClassDetail() {
           <h1 className="row" style={{ gap: 10 }}><span className="dot" style={{ background: c.course.color, width: 12, height: 12 }} /><span className="mono">{c.code}</span><span style={{ fontWeight: 500 }}>{c.course.name}</span></h1>
           <p className="sub">{c.meetings.length ? meetingText(c.meetings) : 'No meeting times yet'} · starts <D date={c.start_date} />{c.room ? ` · ${c.room}` : ''}</p>
         </div>
-        <div className="toolbar"><Pill tone={c.status === 'active' ? 'ok' : c.status === 'upcoming' ? 'accent' : undefined}>{c.status}</Pill>{c.summary.counts.planned + c.summary.counts.completed > 0 && <ProgressPill status={c.summary.progress.status} reason={c.summary.progress.reason} />}</div>
+        <div className="toolbar">
+          {c.status !== 'active' && <Pill tone={c.status === 'upcoming' ? 'accent' : undefined}>{c.status}</Pill>}
+          {c.summary.counts.planned + c.summary.counts.completed > 0 && <ProgressPill status={c.summary.progress.status} reason={c.summary.progress.reason} />}
+          <ExportMenu id={c.id} />
+        </div>
       </div>
       <nav className="tabs no-print">
         <NavLink end to={base}>{t('Overview')}</NavLink>
@@ -105,23 +109,11 @@ function Overview({ c }: { c: any }) {
         </section>
         <section className="panel">
           <div className="panel-head"><h2>Sessions</h2></div>
-          <div className="figures" style={{ border: 0 }}>
-            <div className="figure"><span className="eyebrow">Taught</span><span className="value">{s.counts.completed}</span></div>
-            <div className="figure"><span className="eyebrow">Planned</span><span className="value">{s.counts.planned}</span></div>
-            <div className="figure"><span className="eyebrow">Cancelled</span><span className="value">{s.counts.cancelled}</span></div>
-          </div>
-        </section>
-        <section className="panel">
-          <div className="panel-head"><h2>Exports</h2></div>
-          <div className="panel-body stack" style={{ gap: 8 }}>
-            {[['Term plan (Excel)', `/export/plan/${c.id}`], ['Gradebook (Excel)', `/export/gradebook/${c.id}`], ['Attendance (Excel)', `/export/attendance/${c.id}`], ['Student list (Excel)', `/export/roster/${c.id}`]].map(([label, path]) => (
-              <button key={path} className="btn" style={{ justifyContent: 'flex-start' }} onClick={() => download(path).catch((e) => toast(e.message, 'bad'))}><Icon name="download" />{label}</button>
-            ))}
-            <div className="faint xs">For PDF, open a print view and choose “Save as PDF”. Khmer text is shaped by the browser, so it prints correctly.</div>
-            <div className="row">
-              {[['plan', 'Term plan'], ['gradebook', 'Gradebook'], ['attendance', 'Attendance'], ['roster', 'Students']].map(([k, label]) => <Link key={k} className="btn sm" to={`/print/${k}/${c.id}`} target="_blank"><Icon name="printer" />{label}</Link>)}
-            </div>
-          </div>
+          <dl className="kv panel-body">
+            <dt>Taught</dt><dd className="mono">{s.counts.completed}</dd>
+            <dt>Still planned</dt><dd className="mono">{s.counts.planned}</dd>
+            <dt>Cancelled</dt><dd className="mono">{s.counts.cancelled}</dd>
+          </dl>
         </section>
       </div>
     </div>
@@ -207,5 +199,22 @@ function Setup({ c, onChanged }: { c: any; onChanged: () => void }) {
         </section>
       </div>
     </div>
+  );
+}
+
+function ExportMenu({ id }: { id: number }) {
+  const toast = useToast();
+  const xl = (path: string) => () => download(path).catch((e) => toast(e.message, 'bad'));
+  return (
+    <Menu label="Export" items={[
+      { label: 'Term plan · Excel', onSelect: xl(`/export/plan/${id}`) },
+      { label: 'Gradebook · Excel', onSelect: xl(`/export/gradebook/${id}`) },
+      { label: 'Attendance · Excel', onSelect: xl(`/export/attendance/${id}`) },
+      { label: 'Student list · Excel', onSelect: xl(`/export/roster/${id}`) },
+      { label: 'Term plan · PDF', href: `/print/plan/${id}` },
+      { label: 'Gradebook · PDF', href: `/print/gradebook/${id}` },
+      { label: 'Attendance · PDF', href: `/print/attendance/${id}` },
+      { label: 'Student list · PDF', href: `/print/roster/${id}` },
+    ]} />
   );
 }

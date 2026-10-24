@@ -191,3 +191,76 @@ export function Confirm({ title, body, confirmLabel, danger, onConfirm, onClose 
 export const money = (n: number | null | undefined, currency = 'USD') =>
   n == null ? '—' : new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 2 }).format(n);
 export const fmt = (n: number | null | undefined, digits = 2) => (n == null ? '—' : String(Math.round(n * 10 ** digits) / 10 ** digits));
+
+// ---- Paging, menus, tabs ----------------------------------------------------------------------
+
+export interface PageMeta { total: number; page: number; pageSize: number; pages: number }
+
+/** Page navigation for server-paged lists. */
+export function Pager({ meta, onPage, onSize, noun = 'results' }: { meta: PageMeta; onPage: (p: number) => void; onSize?: (s: number) => void; noun?: string }) {
+  if (!meta.total) return null;
+  const first = (meta.page - 1) * meta.pageSize + 1, last = Math.min(meta.total, meta.page * meta.pageSize);
+  return (
+    <div className="pager no-print">
+      <span className="muted small"><b className="mono">{first}–{last}</b> of <b className="mono">{meta.total}</b> {noun}</span>
+      <div className="row" style={{ gap: 6 }}>
+        {onSize && (
+          <select aria-label="Rows per page" value={meta.pageSize} onChange={(e) => onSize(+e.target.value)} style={{ width: 'auto', minHeight: 30, padding: '2px 6px' }}>
+            {[10, 25, 50, 100].map((n) => <option key={n} value={n}>{n} per page</option>)}
+          </select>
+        )}
+        <button className="btn sm" disabled={meta.page <= 1} onClick={() => onPage(meta.page - 1)} aria-label="Previous page"><Icon name="left" /></button>
+        <span className="mono small">{meta.page} / {meta.pages}</span>
+        <button className="btn sm" disabled={meta.page >= meta.pages} onClick={() => onPage(meta.page + 1)} aria-label="Next page"><Icon name="right" /></button>
+      </div>
+    </div>
+  );
+}
+
+/** A small dropdown for secondary actions, so toolbars show only the main action. */
+export function Menu({ label = 'More', items }: { label?: ReactNode; items: Array<{ label: ReactNode; onSelect?: () => void; href?: string; danger?: boolean; hidden?: boolean }> }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent | KeyboardEvent) => { if (e instanceof KeyboardEvent ? e.key === 'Escape' : !ref.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', close);
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', close); };
+  }, [open]);
+  return (
+    <div className="menu" ref={ref}>
+      <button className="btn" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>{label}<Icon name="down" /></button>
+      {open && (
+        <div className="menu-list" role="menu">
+          {items.filter((i) => !i.hidden).map((i, k) => i.href
+            ? <a key={k} role="menuitem" href={i.href} target="_blank" rel="noreferrer" onClick={() => setOpen(false)}>{i.label}</a>
+            : <button key={k} role="menuitem" className={i.danger ? 'danger' : ''} onClick={() => { setOpen(false); i.onSelect?.(); }}>{i.label}</button>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** In-page tabs that keep their choice in the URL hash so reloads return to the same tab. */
+export function useTab<T extends string>(tabs: readonly T[], fallback: T): [T, (t: T) => void] {
+  const read = () => { const h = window.location.hash.slice(1) as T; return tabs.includes(h) ? h : fallback; };
+  const [tab, setTab] = useState<T>(read);
+  const set = (t: T) => { setTab(t); history.replaceState(null, '', `#${t}`); };
+  return [tab, set];
+}
+
+export function TabBar<T extends string>({ tabs, value, onChange, labels }: { tabs: readonly T[]; value: T; onChange: (t: T) => void; labels: Record<T, ReactNode> }) {
+  return (
+    <div className="tabs" role="tablist">
+      {tabs.map((t) => <a key={t} role="tab" href={`#${t}`} aria-selected={value === t} className={value === t ? 'active' : ''} onClick={(e) => { e.preventDefault(); onChange(t); }}>{labels[t]}</a>)}
+    </div>
+  );
+}
+
+/** Debounced value for search boxes. */
+export function useDebounced<T>(value: T, ms = 250): T {
+  const [v, setV] = useState(value);
+  useEffect(() => { const t = setTimeout(() => setV(value), ms); return () => clearTimeout(t); }, [value, ms]);
+  return v;
+}

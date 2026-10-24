@@ -72,9 +72,7 @@ export function Timetable() {
 
       <div className="row small muted no-print" style={{ gap: 14 }}>
         <span className="row" style={{ gap: 6 }}><Kind kind="lecture" /> <Kind kind="practice" /> <Kind kind="exam" /></span>
-        <span>Dashed outline: class not started yet</span>
-        <span>Struck through: cancelled</span>
-        <span>Red outline: double-booked</span>
+        <span title="Dashed: not started yet · struck through: cancelled · red outline: double-booked">Dashed = not started · struck = cancelled · red = clash</span>
       </div>
 
       {!data.sessions.length && !data.ghosts.length ? (

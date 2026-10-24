@@ -475,5 +475,7 @@ CREATE INDEX record_parts_part ON record_parts(part_id);
 CREATE INDEX audit_at ON audit_log(at);
 CREATE INDEX classes_teacher ON classes(teacher_id, status);
 CREATE INDEX students_owner_latin ON students(owner_id, name_latin);
+-- Attendance totals read only these columns; a covering index avoids a table lookup per mark.
+CREATE INDEX attendance_session_cover ON attendance(session_id, enrollment_id, status);
 `,
 ];

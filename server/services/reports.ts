@@ -51,8 +51,8 @@ export function dashboard(db: DB, u: User) {
   });
 
   const atRisk = classes.filter((c) => c.status === 'active').flatMap((c) => {
-    const g = gradebook(db, u, c.id);
-    return g.rows.filter((r) => r.atRisk && r.enrollmentStatus === 'active').map((r) => ({ classId: c.id, code: c.code, enrollmentId: r.enrollmentId, studentCode: r.code, nameKm: r.nameKm, nameLatin: r.nameLatin, total: r.total, reason: r.riskReason }));
+    const g = gradebook(db, u, c.id, { activeOnly: true });
+    return g.rows.filter((r) => r.atRisk).map((r) => ({ classId: c.id, code: c.code, enrollmentId: r.enrollmentId, studentCode: r.code, nameKm: r.nameKm, nameLatin: r.nameLatin, total: r.total, reason: r.riskReason }));
   });
 
   const pay = payOverview(db, u, now.slice(0, 4));

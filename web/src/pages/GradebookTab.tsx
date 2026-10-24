@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, download, isOfflineCopy, useApi } from '../api.ts';
 import { useI18n } from '../i18n.tsx';
-import { Dialog, ErrorNote, Field, Icon, Loading, Notice, Pill, fmt, useAction, useToast } from '../ui.tsx';
+import { Dialog, ErrorNote, Field, Icon, Loading, Menu, Notice, Pill, fmt, useAction, useToast } from '../ui.tsx';
 import { enqueue, onApplied, pendingOps } from '../offline.ts';
 import { useSync } from '../SyncStatus.tsx';
 import { checkConfig, classStats, computeStudent, parseScoreInput, validateScore, type GradeConfig } from '../../../shared/grades.ts';
@@ -165,8 +165,7 @@ export function GradebookTab({ cls }: { cls: any }) {
       <div className="figures">
         <div className="figure"><span className="eyebrow">{t('Average')}</span><span className="value">{fmt(stats.average, 1)}<small> / {config.targetTotal}</small></span><span className="faint xs">{stats.complete} of {stats.students} complete</span></div>
         <div className="figure"><span className="eyebrow">{t('Pass rate')}</span><span className="value">{stats.passRate == null ? '—' : `${fmt(stats.passRate, 0)}%`}</span><span className="faint xs">pass mark {config.passMark}</span></div>
-        <div className="figure"><span className="eyebrow">{t('Highest')} / {t('Lowest')}</span><span className="value">{fmt(stats.highest, 1)}<small> / {fmt(stats.lowest, 1)}</small></span></div>
-        <div className="figure"><span className="eyebrow">At risk</span><span className="value">{stats.atRisk}</span></div>
+        <div className="figure"><span className="eyebrow">At risk</span><span className="value">{stats.atRisk}</span><span className="faint xs">range {fmt(stats.highest, 1)}–{fmt(stats.lowest, 1)}</span></div>
         <div className="figure"><span className="eyebrow">{t('Missing')} scores</span><span className="value">{stats.missingCells}</span></div>
       </div>
 
@@ -179,14 +178,16 @@ export function GradebookTab({ cls }: { cls: any }) {
         </div>
         <div className="row">
           <Pill tone={data.config.status === 'active' ? 'ok' : data.config.status === 'finalized' ? 'ink' : 'warn'}>{data.config.status}</Pill>
-          <button className="btn" onClick={() => setEditing(true)}>Grading setup</button>
-          <button className="btn" onClick={() => download(`/export/gradebook/${cls.id}`).catch((e) => toast(e.message, 'bad'))}><Icon name="download" />Excel</button>
-          <Link className="btn" to={`/print/gradebook/${cls.id}`} target="_blank"><Icon name="printer" />PDF</Link>
-          {valid && data.config.status === 'active' && <button className="btn" onClick={() => api(`/classes/${cls.id}/grade-config/status`, { body: { status: 'finalized' } }).then(reload).catch((e) => toast(e.message, 'bad'))}>Finalize</button>}
-          {data.config.status === 'finalized' && <button className="btn" onClick={() => api(`/classes/${cls.id}/grade-config/status`, { body: { status: 'active' } }).then(reload).catch((e) => toast(e.message, 'bad'))}>Reopen</button>}
+          <Menu label="More" items={[
+            { label: 'Grading setup…', onSelect: () => setEditing(true) },
+            { label: 'Export to Excel', onSelect: () => download(`/export/gradebook/${cls.id}`).catch((e) => toast(e.message, 'bad')) },
+            { label: 'Print / PDF', href: `/print/gradebook/${cls.id}` },
+            { label: 'Finalize gradebook', hidden: !(valid && data.config.status === 'active'), onSelect: () => api(`/classes/${cls.id}/grade-config/status`, { body: { status: 'finalized' } }).then(reload).catch((e) => toast(e.message, 'bad')) },
+            { label: 'Reopen gradebook', hidden: data.config.status !== 'finalized', onSelect: () => api(`/classes/${cls.id}/grade-config/status`, { body: { status: 'active' } }).then(reload).catch((e) => toast(e.message, 'bad')) },
+          ]} />
         </div>
       </div>
-      <p className="faint xs no-print">Type a score and press Enter or Tab. Paste a block of cells straight from Excel. Leave a cell empty for “not entered yet”; 0 is a real score. Khmer digits are accepted.</p>
+      <p className="faint xs no-print">Enter or Tab to move · paste blocks from Excel · empty means not entered, 0 is a score.</p>
 
       <div className="sheet-wrap">
         <table className="sheet" ref={tableRef}>

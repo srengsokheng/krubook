@@ -2,7 +2,7 @@ import { Fragment, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, download, useApi } from '../api.ts';
 import { useI18n } from '../i18n.tsx';
-import { D, Dialog, Empty, ErrorNote, Field, Icon, Kind, Loading, Notice, SessionStatus, useAction, useToast } from '../ui.tsx';
+import { D, Dialog, Empty, ErrorNote, Field, Icon, Kind, Loading, Menu, Notice, SessionStatus, useAction, useToast } from '../ui.tsx';
 import { ProposalReview, type Proposal } from '../Proposal.tsx';
 import { SessionDialog } from '../SessionDialog.tsx';
 import { AddSession } from './Timetable.tsx';
@@ -47,15 +47,16 @@ export function PlanTab({ cls, onChanged }: { cls: any; onChanged: () => void })
     <div className="stack" style={{ gap: 16 }}>
       <div className="row between no-print">
         <div className="row">
-          {!hasRecords && <button className="btn primary" disabled={busy || !cls.meetings.length} onClick={generate}><Icon name="calendar" />{sessions?.length ? 'Regenerate plan' : 'Generate term plan'}</button>}
-          {sessions && sessions.length > 0 && <button className="btn" disabled={busy} onClick={replan}>Review schedule changes</button>}
-          <button className="btn" onClick={() => setAdding(true)}><Icon name="plus" />Make-up / extra session</button>
-          <label className="check"><input type="checkbox" checked={showOriginal} onChange={(e) => setShowOriginal(e.target.checked)} /> Show original plan</label>
+          {!sessions?.length && <button className="btn primary" disabled={busy || !cls.meetings.length} onClick={generate}><Icon name="calendar" />Generate term plan</button>}
+          {sessions && sessions.length > 0 && <button className="btn" onClick={() => setAdding(true)}><Icon name="plus" />Make-up session</button>}
+          <label className="check"><input type="checkbox" checked={showOriginal} onChange={(e) => setShowOriginal(e.target.checked)} /> Compare with original plan</label>
         </div>
-        <div className="row">
-          <button className="btn" onClick={() => download(`/export/plan/${cls.id}`).catch((e) => toast(e.message, 'bad'))}><Icon name="download" />Excel</button>
-          <Link className="btn" to={`/print/plan/${cls.id}`} target="_blank"><Icon name="printer" />Print / PDF</Link>
-        </div>
+        <Menu label="More" items={[
+          { label: 'Review schedule changes…', hidden: !sessions?.length, onSelect: replan },
+          { label: 'Regenerate plan…', hidden: !sessions?.length || hasRecords, onSelect: generate },
+          { label: 'Export to Excel', onSelect: () => download(`/export/plan/${cls.id}`).catch((e) => toast(e.message, 'bad')) },
+          { label: 'Print / PDF', href: `/print/plan/${cls.id}` },
+        ]} />
       </div>
       {!cls.meetings.length && <Notice tone="warn">Add meeting times under Setup before generating a plan.</Notice>}
       {pending && <Notice tone="warn"><div className="row between"><span><b>Waiting for review:</b> {pending.reason} — {pending.changes.length} session(s) would change.</span><button className="btn sm primary" onClick={() => setReview(pending)}>Review</button></div></Notice>}

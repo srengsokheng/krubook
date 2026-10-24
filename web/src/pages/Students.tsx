@@ -1,42 +1,47 @@
-import { useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, useApi } from '../api.ts';
 import { useI18n } from '../i18n.tsx';
-import { D, Empty, ErrorNote, Field, Icon, Loading, Pill, fmt, useAction } from '../ui.tsx';
+import { Confirm, D, Empty, ErrorNote, Field, Icon, Loading, Pager, Pill, fmt, useAction, useDebounced } from '../ui.tsx';
 
 export function Students() {
   const { t } = useI18n();
-  const [q, setQ] = useState('');
-  const [debounced, setDebounced] = useState('');
-  const { data, error, loading, reload } = useApi<any[]>(`/students?q=${encodeURIComponent(debounced)}`);
-  const [sortKm, setSortKm] = useState(false);
-  const onQ = (v: string) => { setQ(v); clearTimeout((onQ as any).t); (onQ as any).t = setTimeout(() => setDebounced(v), 220); };
-  const list = [...(data ?? [])];
-  if (sortKm) { const c = new Intl.Collator('km'); list.sort((a, b) => c.compare(a.name_km ?? '', b.name_km ?? '')); }
+  // Search, sort and page live in the URL so the back button and reloads keep them.
+  const [params, setParams] = useSearchParams();
+  const q = params.get('q') ?? '';
+  const sort = params.get('sort') ?? 'code';
+  const page = Number(params.get('page') ?? 1) || 1;
+  const size = Number(params.get('size') ?? 25) || 25;
+  const [text, setText] = useState(q);
+  const debounced = useDebounced(text);
+  const set = (patch: Record<string, string | number>) => {
+    const next = new URLSearchParams(params);
+    for (const [k, v] of Object.entries(patch)) next.set(k, String(v));
+    setParams(next, { replace: true });
+  };
+  useEffect(() => { if (debounced !== q) set({ q: debounced, page: 1 }); }, [debounced]); // eslint-disable-line react-hooks/exhaustive-deps
+  const { data, error, loading, reload } = useApi<any>(`/students?q=${encodeURIComponent(q)}&sort=${sort}&page=${page}&pageSize=${size}`);
+  const th = (key: string, label: string) => <th aria-sort={sort === key ? 'ascending' : 'none'}><button className="btn ghost sm" style={{ padding: 0, height: 'auto', font: 'inherit', color: 'inherit' }} onClick={() => set({ sort: key, page: 1 })}>{label}{sort === key ? ' ▲' : ''}</button></th>;
   return (
     <div className="page">
-      <div className="page-head">
-        <div><h1>{t('Students')}</h1><p className="sub">Every student across classes. Import rosters from a class’s Roster tab.</p></div>
-      </div>
-      <div className="row">
-        <div className="search"><Icon name="search" /><input aria-label="Search students" value={q} onChange={(e) => onQ(e.target.value)} placeholder="ID, Khmer name, Latin name or email" /></div>
-        <label className="check"><input type="checkbox" checked={sortKm} onChange={(e) => setSortKm(e.target.checked)} /> Sort by Khmer name</label>
-      </div>
+      <div className="page-head"><h1>{t('Students')}</h1></div>
+      <div className="search" style={{ maxWidth: 420 }}><Icon name="search" /><input aria-label="Search students" value={text} onChange={(e) => setText(e.target.value)} placeholder="ID, Khmer or Latin name, email" /></div>
       <ErrorNote error={error} retry={reload} />
-      {loading && !data ? <Loading rows={8} /> : !list.length ? <div className="panel"><Empty title={q ? 'No students match' : 'No students yet'} /></div> : (
-        <div className="panel table-wrap">
-          <table className="table">
-            <thead><tr><th>{t('Student ID')}</th><th>{t('Khmer name')}</th><th>{t('Latin name')}</th><th>Current classes</th><th>Email</th></tr></thead>
-            <tbody>{list.map((s) => (
-              <tr key={s.id}>
-                <td className="mono"><Link to={`/students/${s.id}`}>{s.student_code}</Link></td>
-                <td>{s.name_km}</td><td>{s.name_latin}</td>
-                <td className="mono small">{s.classes ?? <span className="faint">none</span>}</td>
-                <td className="small">{s.email}</td>
-              </tr>
-            ))}</tbody>
-          </table>
-          {list.length === 500 && <div className="panel-body faint small">Showing the first 500. Search to narrow the list.</div>}
+      {loading && !data ? <Loading rows={8} /> : !data?.total ? <div className="panel"><Empty title={q ? 'No students match' : 'No students yet'}>{q ? 'Try part of a name or ID.' : 'Import a roster from a class page.'}</Empty></div> : (
+        <div className="panel">
+          <div className="table-wrap">
+            <table className="table">
+              <thead><tr>{th('code', t('Student ID'))}{th('km', t('Khmer name'))}{th('latin', t('Latin name'))}<th>Classes</th></tr></thead>
+              <tbody>{data.items.map((s: any) => (
+                <tr key={s.id}>
+                  <td className="mono"><Link to={`/students/${s.id}`}>{s.student_code}</Link></td>
+                  <td>{s.name_km}</td><td>{s.name_latin}</td>
+                  <td className="mono small">{s.classes ?? <span className="faint">none</span>}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+          <Pager meta={data} onPage={(p) => set({ page: p })} onSize={(n) => set({ size: n, page: 1 })} noun="students" />
         </div>
       )}
     </div>
@@ -47,7 +52,9 @@ export function StudentDetail() {
   const { id } = useParams();
   const { data: s, error, loading, reload } = useApi<any>(`/students/${id}`);
   const [f, setF] = useState<any | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const { busy, run } = useAction();
+  const nav = useNavigate();
   if (error) return <div className="page"><ErrorNote error={error} retry={reload} /></div>;
   if (loading && !s) return <div className="page"><Loading /></div>;
   if (!s) return null;
@@ -56,7 +63,9 @@ export function StudentDetail() {
     <div className="page">
       <div className="page-head">
         <div><div className="eyebrow"><Link to="/students">Students</Link> · <span className="mono">{s.student_code}</span></div><h1>{s.name_km ?? s.name_latin}</h1>{s.name_km && <p className="sub">{s.name_latin}</p>}</div>
+        {!s.enrollments.length && <button className="btn danger" onClick={() => setDeleting(true)}>Delete student</button>}
       </div>
+      {deleting && <Confirm danger title="Delete this student?" body="They have no class history, so nothing else is affected." confirmLabel="Delete" onClose={() => setDeleting(false)} onConfirm={() => run(() => api(`/students/${s.id}`, { method: 'DELETE' }), 'Student deleted').then((r) => { if (r) nav('/students'); })} />}
       <div className="grid side">
         <section className="panel">
           <div className="panel-head"><h2>Enrollment history</h2></div>

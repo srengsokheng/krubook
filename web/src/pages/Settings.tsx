@@ -1,14 +1,17 @@
 import { useEffect, useState } from 'react';
 import { api, download, useApi } from '../api.ts';
 import { useI18n, type Lang } from '../i18n.tsx';
-import { Confirm, D, ErrorNote, Field, Icon, Loading, Notice, Pill, useAction, useToast } from '../ui.tsx';
+import { Confirm, D, Empty, ErrorNote, Field, Icon, Loading, Notice, Pager, Pill, TabBar, useAction, useTab, useToast } from '../ui.tsx';
 import { HolidayCheck } from './Terms.tsx';
 import type { Me } from '../App.tsx';
 
 const STATUS_KEYS = ['planned', 'completed', 'cancelled', 'skipped', 'moved', 'ahead', 'on_schedule', 'behind', 'not_started'];
 
+const TABS = ['general', 'holidays', 'reminders', 'backup', 'activity'] as const;
+
 export function Settings({ me }: { me: Me }) {
   const { t, lang, setLang, setOverrides } = useI18n();
+  const [tab, setTab] = useTab(TABS, 'general');
   const toast = useToast();
   const { data: s, error, reload } = useApi<any>('/settings');
   const { data: holidays, reload: reloadHol } = useApi<any[]>('/holidays');
@@ -33,7 +36,10 @@ export function Settings({ me }: { me: Me }) {
   return (
     <div className="page">
       <div className="page-head"><div><h1>{t('Settings')}</h1></div></div>
-      <div className="grid two">
+      <TabBar tabs={TABS} value={tab} onChange={setTab} labels={{ general: 'General', holidays: t('Holidays'), reminders: 'Reminders', backup: t('Backup'), activity: 'Activity' }} />
+      {tab === 'activity' && <Activity />}
+      <div className={tab === 'general' ? 'grid two' : 'stack'}>
+        {tab === 'general' && (
         <section className="panel">
           <div className="panel-head"><h2>Language and time</h2></div>
           <div className="panel-body stack">
@@ -45,7 +51,9 @@ export function Settings({ me }: { me: Me }) {
             <button className="btn primary" style={{ alignSelf: 'flex-start' }} disabled={busy} onClick={() => run(() => api('/settings', { method: 'PUT', body: { timezone: f.timezone } }), 'Saved').then(reload)}>Save</button>
           </div>
         </section>
+        )}
 
+        {tab === 'general' && (
         <section className="panel">
           <div className="panel-head"><h2>Status names</h2></div>
           <div className="panel-body stack">
@@ -56,7 +64,9 @@ export function Settings({ me }: { me: Me }) {
             <button className="btn primary" style={{ alignSelf: 'flex-start' }} disabled={busy} onClick={() => { const clean = Object.fromEntries(Object.entries(labels).filter(([, v]) => v.trim())); run(() => api('/settings', { method: 'PUT', body: { statusLabels: clean } }), 'Status names saved').then(() => setOverrides(clean)); }}>Save names</button>
           </div>
         </section>
+        )}
 
+        {tab === 'holidays' && (
         <section className="panel">
           <div className="panel-head"><h2>{t('Holidays')}</h2><span className="faint small">{holidays?.length ?? 0}</span></div>
           <div className="panel-body stack">
@@ -86,7 +96,9 @@ export function Settings({ me }: { me: Me }) {
             <button className="btn primary" style={{ alignSelf: 'flex-start' }} disabled={busy || !hol.date || !hol.name} onClick={() => run(() => api('/holidays', { body: { ...hol, endDate: hol.endDate || null } }), 'Holiday added. Check classes to see the impact.').then(() => { setHol({ date: '', endDate: '', name: '', nameKm: '' }); reloadHol(); })}>Add holiday</button>
           </div>
         </section>
+        )}
 
+        {tab === 'reminders' && (
         <section className="panel">
           <div className="panel-head"><h2>Reminders</h2></div>
           <div className="panel-body stack">
@@ -109,7 +121,9 @@ export function Settings({ me }: { me: Me }) {
             )}
           </div>
         </section>
+        )}
 
+        {tab === 'backup' && (
         <section className="panel">
           <div className="panel-head"><h2>{t('Backup')} and restore</h2></div>
           <div className="panel-body stack">
@@ -135,8 +149,41 @@ export function Settings({ me }: { me: Me }) {
             </>}
           </div>
         </section>
+        )}
       </div>
       {confirmRestore && restore && <Confirm danger title="Replace all current data?" confirmLabel="Restore backup" body="Everything in KruBook is replaced by the backup. You will need to sign in again. The previous database file is kept on the server." onClose={() => setConfirmRestore(false)} onConfirm={() => run(() => api('/restore', { body: restore.file }), 'Backup restored').then((r) => { if (r) window.location.href = '/'; })} />}
     </div>
+  );
+}
+
+/** Who changed what, newest first (grades, attendance, schedules, enrollments, pay). */
+function Activity() {
+  const [page, setPage] = useState(1);
+  const [size, setSize] = useState(25);
+  const [entity, setEntity] = useState('');
+  const { data, error, reload } = useApi<any>(`/audit?page=${page}&pageSize=${size}${entity ? `&entity=${entity}` : ''}`);
+  if (error) return <ErrorNote error={error} retry={reload} />;
+  if (!data) return <Loading />;
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <h2>Activity</h2>
+        <select aria-label="Filter activity" value={entity} onChange={(e) => { setEntity(e.target.value); setPage(1); }} style={{ width: 180 }}>
+          <option value="">Everything</option>
+          {['score', 'attendance', 'session', 'teaching_record', 'enrollment', 'grade_config', 'pay_statement', 'rate', 'pay_adjustment', 'student', 'class', 'course', 'term'].map((e) => <option key={e} value={e}>{e.replace('_', ' ')}</option>)}
+        </select>
+      </div>
+      {data.total ? (
+        <>
+          <div className="table-wrap">
+            <table className="table">
+              <thead><tr><th>When (UTC)</th><th>What</th><th>Action</th><th>By</th></tr></thead>
+              <tbody>{data.items.map((a: any) => <tr key={a.id}><td className="mono small">{a.at}</td><td>{a.entity.replace('_', ' ')} <span className="faint mono">#{a.entity_id}</span></td><td>{a.action}</td><td className="small">{a.user_name ?? '—'}</td></tr>)}</tbody>
+            </table>
+          </div>
+          <Pager meta={data} onPage={setPage} onSize={(n) => { setSize(n); setPage(1); }} noun="changes" />
+        </>
+      ) : <Empty title="No changes recorded yet" />}
+    </section>
   );
 }
