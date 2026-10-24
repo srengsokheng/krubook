@@ -4,7 +4,7 @@ import type { User } from '../auth.ts';
 import { ownClass } from './access.ts';
 import { gradebook, attendanceSummary } from './records.ts';
 import { orderedParts } from './plan.ts';
-import { payData } from './reports.ts';
+import { payLines, payOverview } from './pay.ts';
 import { weekdayName, weekday } from '../../shared/dates.ts';
 
 // Excel exports keep real types: dates are Excel dates, scores are numbers, and student IDs are
@@ -173,28 +173,32 @@ export async function attendanceXlsx(db: DB, u: User, classId: number): Promise<
 }
 
 export async function payXlsx(db: DB, u: User, year: string): Promise<Buffer> {
-  const p = payData(db, u, year);
+  const p = payOverview(db, u, year);
   const wb = new ExcelJS.Workbook();
-  const { ws } = sheetWithMeta(wb, 'Monthly summary', [['Teacher', u.name], ['Year', year], ['Note', 'Earned = taught and recorded sessions. Expected = planned sessions still ahead. Paid amounts are entered by the teacher.'], ['Exported', new Date().toISOString().slice(0, 16).replace('T', ' ')]], [
+  const { ws } = sheetWithMeta(wb, 'Monthly summary', [['Teacher', u.name], ['Year', year], ['Note', 'Estimated = taught sessions not yet approved. Approved and paid amounts come from frozen pay statements. Expected = planned sessions still ahead.'], ['Exported', new Date().toISOString().slice(0, 16).replace('T', ' ')]], [
     { header: 'Month', key: 'month', width: 10 },
     { header: 'Sessions taught', key: 'n', width: 14 },
     { header: 'Hours taught', key: 'h', width: 12, style: { numFmt: '0.00' } },
     { header: 'Make-up sessions', key: 'mk', width: 15 },
-    { header: `Earned (${p.currency})`, key: 'earned', width: 14, style: { numFmt: '#,##0.00' } },
-    { header: 'Adjustments', key: 'adj', width: 12, style: { numFmt: '#,##0.00' } },
-    { header: 'Estimated total', key: 'est', width: 15, style: { numFmt: '#,##0.00' } },
-    { header: 'Expected (planned)', key: 'exp', width: 17, style: { numFmt: '#,##0.00' } },
-    { header: 'Confirmed', key: 'conf', width: 12, style: { numFmt: '#,##0.00' } },
+    { header: `Estimated (${p.currency})`, key: 'est', width: 15, style: { numFmt: '#,##0.00' } },
+    { header: 'Approved', key: 'appr', width: 12, style: { numFmt: '#,##0.00' } },
     { header: 'Paid', key: 'paid', width: 12, style: { numFmt: '#,##0.00' } },
+    { header: 'Month total', key: 'total', width: 13, style: { numFmt: '#,##0.00' } },
+    { header: 'Expected (planned)', key: 'exp', width: 17, style: { numFmt: '#,##0.00' } },
   ]);
-  for (const m of p.months) addRow(ws, { month: m.month, n: m.taughtSessions, h: m.taughtMinutes / 60, mk: m.makeupSessions, earned: m.earned, adj: m.adjustments, est: m.estimatedTotal, exp: m.expected, conf: m.confirmed, paid: m.paid });
+  for (const m of p.months) addRow(ws, { month: m.month, n: m.taughtSessions, h: m.taughtMinutes / 60, mk: m.makeupSessions, est: m.estimated, appr: m.approved, paid: m.paid, total: m.total, exp: m.expected });
   const det = wb.addWorksheet('Sessions');
   det.columns = [
     { header: 'Date', key: 'date', width: 12, style: { numFmt: 'yyyy-mm-dd' } }, { header: 'Start', key: 'start', width: 7 }, { header: 'Class', key: 'code', width: 10 },
-    { header: 'Course', key: 'course', width: 24 }, { header: 'Minutes', key: 'min', width: 9 }, { header: 'Make-up', key: 'mk', width: 9 }, { header: 'Rate', key: 'rate', width: 14 }, { header: 'Amount', key: 'amt', width: 10, style: { numFmt: '#,##0.00' } },
+    { header: 'Course', key: 'course', width: 24 }, { header: 'Minutes', key: 'min', width: 9 }, { header: 'Make-up', key: 'mk', width: 9 }, { header: 'Rate', key: 'rate', width: 14 },
+    { header: 'Amount', key: 'amt', width: 10, style: { numFmt: '#,##0.00' } }, { header: 'Status', key: 'st', width: 11 },
   ];
   det.getRow(1).font = { bold: true };
-  for (const l of p.lines) det.addRow({ date: asDate(l.date), start: l.start, code: l.code, course: l.courseName, min: l.minutes, mk: l.isMakeup ? 'yes' : '', rate: l.rate ?? 'no rate set', amt: l.amount });
+  for (const l of payLines(db, u, `${year}-01-01`, `${year}-12-31`)) det.addRow({ date: asDate(l.date), start: l.start, code: l.code, course: l.courseName, min: l.minutes, mk: l.isMakeup ? 'yes' : '', rate: l.rate ?? 'no rate set', amt: l.amount, st: l.statementStatus ?? 'estimated' });
+  const st = wb.addWorksheet('Statements');
+  st.columns = [{ header: 'Month', key: 'month', width: 10 }, { header: 'Status', key: 'status', width: 10 }, { header: 'Sessions', key: 'sessions', width: 9 }, { header: 'Total', key: 'total', width: 12, style: { numFmt: '#,##0.00' } }, { header: 'Paid on', key: 'paidOn', width: 12 }, { header: 'Paid amount', key: 'paidAmount', width: 12, style: { numFmt: '#,##0.00' } }];
+  st.getRow(1).font = { bold: true };
+  for (const s of p.statements) st.addRow(s);
   const adj = wb.addWorksheet('Adjustments');
   adj.columns = [{ header: 'Month', key: 'month', width: 10 }, { header: 'Amount', key: 'amount', width: 12, style: { numFmt: '#,##0.00' } }, { header: 'Note', key: 'note', width: 40 }];
   adj.getRow(1).font = { bold: true };

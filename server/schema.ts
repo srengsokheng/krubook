@@ -407,4 +407,73 @@ CREATE TRIGGER sessions_cancel_with_attendance BEFORE UPDATE OF status ON sessio
 WHEN NEW.status IN ('cancelled','skipped','moved') AND EXISTS (SELECT 1 FROM attendance WHERE session_id = NEW.id)
 BEGIN SELECT RAISE(ABORT, 'SESSION_HAS_ATTENDANCE'); END;
 `,
+  /* 2: pay statements (approved/paid snapshots), rate deactivation, extra indexes */ `
+-- An approved statement freezes the sessions, minutes, rates and amounts it covers, so later rate
+-- edits only change estimates. Each taught session can appear on one statement only.
+CREATE TABLE pay_statements (
+  id INTEGER PRIMARY KEY,
+  owner_id INTEGER NOT NULL REFERENCES users(id),
+  month TEXT NOT NULL CHECK (month GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]'),
+  status TEXT NOT NULL DEFAULT 'approved' CHECK (status IN ('approved','paid')),
+  currency TEXT NOT NULL DEFAULT 'USD',
+  sessions INTEGER NOT NULL CHECK (sessions >= 0),
+  minutes INTEGER NOT NULL CHECK (minutes >= 0),
+  earned REAL NOT NULL,
+  adjustments REAL NOT NULL,
+  total REAL NOT NULL,
+  approved_at TEXT NOT NULL DEFAULT (datetime('now')),
+  paid_on TEXT,
+  paid_amount REAL CHECK (paid_amount IS NULL OR paid_amount >= 0),
+  note TEXT
+);
+CREATE INDEX pay_statements_owner_month ON pay_statements(owner_id, month);
+
+CREATE TABLE pay_statement_lines (
+  id INTEGER PRIMARY KEY,
+  statement_id INTEGER NOT NULL REFERENCES pay_statements(id) ON DELETE CASCADE,
+  session_id INTEGER NOT NULL UNIQUE REFERENCES sessions(id) ON DELETE RESTRICT,
+  minutes INTEGER NOT NULL CHECK (minutes > 0),
+  rate_mode TEXT,
+  rate_amount REAL,
+  amount REAL NOT NULL CHECK (amount >= 0)
+);
+CREATE INDEX pay_lines_statement ON pay_statement_lines(statement_id);
+
+ALTER TABLE pay_adjustments ADD COLUMN statement_id INTEGER REFERENCES pay_statements(id) ON DELETE SET NULL;
+ALTER TABLE rates ADD COLUMN active INTEGER NOT NULL DEFAULT 1;
+
+CREATE TRIGGER pay_lines_immutable BEFORE UPDATE ON pay_statement_lines
+BEGIN SELECT RAISE(ABORT, 'PAY_LOCKED'); END;
+
+CREATE TRIGGER pay_statement_paid_keep BEFORE DELETE ON pay_statements
+WHEN OLD.status = 'paid'
+BEGIN SELECT RAISE(ABORT, 'PAY_PAID'); END;
+
+CREATE TRIGGER pay_statement_totals_keep BEFORE UPDATE OF sessions, minutes, earned, adjustments, total, month ON pay_statements
+WHEN OLD.status = 'paid'
+BEGIN SELECT RAISE(ABORT, 'PAY_PAID'); END;
+
+CREATE TRIGGER pay_adjustment_locked_upd BEFORE UPDATE OF month, amount, note ON pay_adjustments
+WHEN OLD.statement_id IS NOT NULL
+BEGIN SELECT RAISE(ABORT, 'PAY_LOCKED'); END;
+
+CREATE TRIGGER pay_adjustment_locked_del BEFORE DELETE ON pay_adjustments
+WHEN OLD.statement_id IS NOT NULL
+BEGIN SELECT RAISE(ABORT, 'PAY_LOCKED'); END;
+
+CREATE TRIGGER teaching_record_paid_del BEFORE DELETE ON teaching_records
+WHEN EXISTS (SELECT 1 FROM pay_statement_lines WHERE session_id = OLD.session_id)
+BEGIN SELECT RAISE(ABORT, 'PAY_LOCKED'); END;
+
+CREATE TRIGGER teaching_record_paid_upd BEFORE UPDATE OF minutes ON teaching_records
+WHEN NEW.minutes <> OLD.minutes AND EXISTS (SELECT 1 FROM pay_statement_lines WHERE session_id = OLD.session_id)
+BEGIN SELECT RAISE(ABORT, 'PAY_LOCKED'); END;
+
+-- Indexes for lookups that previously scanned whole tables.
+CREATE INDEX enrollments_student ON enrollments(student_id);
+CREATE INDEX record_parts_part ON record_parts(part_id);
+CREATE INDEX audit_at ON audit_log(at);
+CREATE INDEX classes_teacher ON classes(teacher_id, status);
+CREATE INDEX students_owner_latin ON students(owner_id, name_latin);
+`,
 ];

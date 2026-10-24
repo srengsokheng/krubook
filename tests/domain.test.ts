@@ -3,7 +3,7 @@ import { addDays, formatDate, startOfWeek, weekday } from '../shared/dates.ts';
 import { findOverlaps, generatePlan, proposeReplan, standardTemplate, type Meeting, type SessionState } from '../shared/schedule.ts';
 import { attendanceScore, checkConfig, classStats, computeStudent, DEFAULT_ATTENDANCE_RULE, DEFAULT_COMPONENTS, parseScoreInput, validateScore, type GradeConfig } from '../shared/grades.ts';
 import { classProgress } from '../shared/progress.ts';
-import { monthlyPay, resolveRate } from '../shared/pay.ts';
+import { resolveRate, sessionPay } from '../shared/pay.ts';
 
 const MON_WED: Meeting[] = [
   { id: 1, weekday: 1, start: '08:00', end: '10:00' },
@@ -237,14 +237,20 @@ describe('pay', () => {
   const rates = [
     { id: 1, classId: null, courseId: null, mode: 'hourly' as const, amount: 10, effectiveFrom: '2026-01-01' },
     { id: 2, classId: 5, courseId: null, mode: 'per_session' as const, amount: 25, effectiveFrom: '2026-01-01' },
+    { id: 3, classId: null, courseId: 7, mode: 'hourly' as const, amount: 12, effectiveFrom: '2026-09-01' },
+    { id: 4, classId: null, courseId: null, mode: 'hourly' as const, amount: 11, effectiveFrom: '2026-10-01', active: false },
   ];
-  it('uses the most specific rate and only counts taught sessions as earned', () => {
-    expect(resolveRate(rates, { classId: 5, courseId: 1, date: '2026-09-01' })!.id).toBe(2);
-    const m = monthlyPay([
-      { id: 1, classId: 1, courseId: 1, date: '2026-09-07', minutes: 90, state: 'completed', isMakeup: false },
-      { id: 2, classId: 5, courseId: 1, date: '2026-09-08', minutes: 60, state: 'completed', isMakeup: true },
-      { id: 3, classId: 1, courseId: 1, date: '2026-09-30', minutes: 60, state: 'planned', isMakeup: false },
-    ], rates, [{ month: '2026-09', amount: -5 }]);
-    expect(m[0]).toMatchObject({ taughtSessions: 2, earned: 40, expected: 10, makeupSessions: 1, estimatedTotal: 35 });
+  it('picks the most specific active rate in force on the date', () => {
+    expect(resolveRate(rates, { classId: 5, courseId: 7, date: '2026-09-15' })!.id).toBe(2);
+    expect(resolveRate(rates, { classId: 1, courseId: 7, date: '2026-09-15' })!.id).toBe(3);
+    expect(resolveRate(rates, { classId: 1, courseId: 7, date: '2026-08-15' })!.id).toBe(1);
+    expect(resolveRate(rates, { classId: 1, courseId: 9, date: '2026-10-15' })!.id).toBe(1);
+    expect(resolveRate([], { classId: 1, courseId: 9, date: '2026-10-15' })).toBeNull();
+  });
+  it('prices hourly and per-session sessions to the cent', () => {
+    expect(sessionPay(rates[0], 120)).toBe(20);
+    expect(sessionPay(rates[1], 90)).toBe(25);
+    expect(sessionPay({ ...rates[0], amount: 12.5 }, 50)).toBe(10.42);
+    expect(sessionPay(null, 120)).toBe(0);
   });
 });

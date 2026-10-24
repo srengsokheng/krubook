@@ -8,6 +8,8 @@ import * as roster from './services/roster.ts';
 import * as reports from './services/reports.ts';
 import * as exportsSvc from './services/exports.ts';
 import * as backup from './services/backup.ts';
+import * as pay from './services/pay.ts';
+import { pageArray, paged, readPage, readSort } from './paging.ts';
 import { addDays, diffDays, isISODate, isTime, rangesOverlap, startOfWeek } from '../shared/dates.ts';
 import { findOverlaps, standardTemplate, type SessionRule } from '../shared/schedule.ts';
 import { cambodianHolidays } from '../shared/holidays.ts';
@@ -491,29 +493,59 @@ export function buildRouter(holder: DBHolder): Router {
 
   // ---- Dashboard & pay ---------------------------------------------------------------------
   get('/dashboard', (_req, db, u) => reports.dashboard(db, u));
-  get('/pay', (req, db, u) => reports.payData(db, u, String(req.query.year ?? today(db, u).slice(0, 4))));
+  get('/pay', (req, db, u) => pay.payOverview(db, u, String(req.query.year ?? today(db, u).slice(0, 4))));
+  get('/pay/lines', (req, db, u) => {
+    const p = readPage(req.query, 25);
+    const month = String(req.query.month ?? '');
+    const year = String(req.query.year ?? today(db, u).slice(0, 4));
+    if (month && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new AppError(400, 'month must be YYYY-MM.');
+    if (!/^\d{4}$/.test(year)) throw new AppError(400, 'year must be four digits.');
+    const lines = month ? pay.payLines(db, u, `${month}-01`, `${month}-31`) : pay.payLines(db, u, `${year}-01-01`, `${year}-12-31`);
+    return pageArray(lines.reverse(), p);
+  });
+  post('/pay/statements', (req, db, u) => pay.approveMonth(db, u, String(req.body.month ?? ''), req.body.note));
+  get('/pay/statements/:id', (req, db, u) => pay.statementDetail(db, u, num(req.params.id, 'statement')));
+  post('/pay/statements/:id/paid', (req, db, u) => pay.markPaid(db, u, num(req.params.id, 'statement'), req.body));
+  del('/pay/statements/:id', (req, db, u) => pay.unapprove(db, u, num(req.params.id, 'statement')));
   post('/rates', (req, db, u) => {
-    const b = req.body;
-    if (b.classId) ownClass(db, u, num(b.classId, 'class'));
-    if (b.courseId) ownCourse(db, u, num(b.courseId, 'course'));
-    if (!(Number(b.amount) >= 0)) throw new AppError(422, 'Enter a rate of 0 or more.');
-    const id = db.run('INSERT INTO rates (owner_id, class_id, course_id, mode, amount, currency, effective_from) VALUES (?,?,?,?,?,?,?)', u.id, b.classId || null, b.courseId || null, b.mode === 'per_session' ? 'per_session' : 'hourly', Number(b.amount), b.currency || 'USD', date(b.effectiveFrom, 'Effective date')).id;
-    db.audit(u.id, 'rate', id, 'create', undefined, b);
+    const r = pay.validateRate(db, u, req.body);
+    const id = db.run('INSERT INTO rates (owner_id, class_id, course_id, mode, amount, currency, effective_from) VALUES (?,?,?,?,?,?,?)', u.id, r.classId, r.courseId, r.mode, r.amount, r.currency, r.effectiveFrom).id;
+    db.audit(u.id, 'rate', id, 'create', undefined, r);
     return { id };
   });
-  del('/rates/:id', (req, db, u) => { const id = num(req.params.id, 'rate'); db.audit(u.id, 'rate', id, 'delete', db.get('SELECT * FROM rates WHERE id = ?', id)); db.run('DELETE FROM rates WHERE id = ? AND owner_id = ?', id, u.id); });
+  put('/rates/:id', (req, db, u) => {
+    const old = db.get('SELECT * FROM rates WHERE id = ? AND owner_id = ?', num(req.params.id, 'rate'), u.id);
+    if (!old) throw new AppError(404, 'Rate not found.');
+    const merged = { mode: old.mode, amount: old.amount, effectiveFrom: old.effective_from, classId: old.class_id, courseId: old.course_id, currency: old.currency, ...req.body };
+    const r = pay.validateRate(db, u, merged);
+    const active = req.body.active === undefined ? old.active : req.body.active ? 1 : 0;
+    db.tx(() => {
+      db.run('UPDATE rates SET class_id=?, course_id=?, mode=?, amount=?, currency=?, effective_from=?, active=? WHERE id=?', r.classId, r.courseId, r.mode, r.amount, r.currency, r.effectiveFrom, active, old.id);
+      db.audit(u.id, 'rate', old.id, 'update', old, { ...r, active });
+    });
+  });
+  del('/rates/:id', (req, db, u) => {
+    const old = db.get('SELECT * FROM rates WHERE id = ? AND owner_id = ?', num(req.params.id, 'rate'), u.id);
+    if (!old) throw new AppError(404, 'Rate not found.');
+    db.tx(() => { db.run('DELETE FROM rates WHERE id = ?', old.id); db.audit(u.id, 'rate', old.id, 'delete', old); });
+  });
   post('/pay/adjustments', (req, db, u) => {
-    const id = db.run('INSERT INTO pay_adjustments (owner_id, month, amount, note) VALUES (?,?,?,?)', u.id, String(req.body.month), Number(req.body.amount), str(req.body.note, 'A note explaining the adjustment')).id;
-    db.audit(u.id, 'pay_adjustment', id, 'create', undefined, req.body);
+    const a = pay.validateAdjustment(req.body);
+    const id = db.run('INSERT INTO pay_adjustments (owner_id, month, amount, note) VALUES (?,?,?,?)', u.id, a.month, a.amount, a.note).id;
+    db.audit(u.id, 'pay_adjustment', id, 'create', undefined, a);
     return { id };
   });
-  del('/pay/adjustments/:id', (req, db, u) => { const id = num(req.params.id, 'adjustment'); db.audit(u.id, 'pay_adjustment', id, 'delete', db.get('SELECT * FROM pay_adjustments WHERE id = ?', id)); db.run('DELETE FROM pay_adjustments WHERE id = ? AND owner_id = ?', id, u.id); });
-  post('/pay/payments', (req, db, u) => {
-    const id = db.run('INSERT INTO payments (owner_id, month, amount, status, paid_on, note) VALUES (?,?,?,?,?,?)', u.id, String(req.body.month), Number(req.body.amount), req.body.status === 'paid' ? 'paid' : 'confirmed', date(req.body.paidOn, 'Paid on', false), req.body.note ?? null).id;
-    db.audit(u.id, 'payment', id, 'create', undefined, req.body);
-    return { id };
+  put('/pay/adjustments/:id', (req, db, u) => {
+    const old = db.get('SELECT * FROM pay_adjustments WHERE id = ? AND owner_id = ?', num(req.params.id, 'adjustment'), u.id);
+    if (!old) throw new AppError(404, 'Adjustment not found.');
+    const a = pay.validateAdjustment({ month: old.month, amount: old.amount, note: old.note, ...req.body });
+    db.tx(() => { db.run('UPDATE pay_adjustments SET month=?, amount=?, note=? WHERE id=?', a.month, a.amount, a.note, old.id); db.audit(u.id, 'pay_adjustment', old.id, 'update', old, a); });
   });
-  del('/pay/payments/:id', (req, db, u) => { const id = num(req.params.id, 'payment'); db.audit(u.id, 'payment', id, 'delete', db.get('SELECT * FROM payments WHERE id = ?', id)); db.run('DELETE FROM payments WHERE id = ? AND owner_id = ?', id, u.id); });
+  del('/pay/adjustments/:id', (req, db, u) => {
+    const old = db.get('SELECT * FROM pay_adjustments WHERE id = ? AND owner_id = ?', num(req.params.id, 'adjustment'), u.id);
+    if (!old) throw new AppError(404, 'Adjustment not found.');
+    db.tx(() => { db.run('DELETE FROM pay_adjustments WHERE id = ?', old.id); db.audit(u.id, 'pay_adjustment', old.id, 'delete', old); });
+  });
 
   // ---- Exports, backup and restore ---------------------------------------------------------
   const sendXlsx = (res: Response, name: string, buf: Buffer) => {

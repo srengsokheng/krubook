@@ -4,42 +4,7 @@ import { classScope, getSetting, today } from './access.ts';
 import { classSummary, orderedParts } from './plan.ts';
 import { gradebook } from './records.ts';
 import { addDays, DEFAULT_TZ, durationMinutes, formatDate, monthOf, nowTimeIn, todayIn, weekday } from '../../shared/dates.ts';
-import { monthlyPay, resolveRate, sessionPay, type PaySession, type Rate } from '../../shared/pay.ts';
-
-// ---------------------------------------------------------------------------------------------
-// Teaching hours and pay
-
-export function payData(db: DB, u: User, year: string) {
-  const sc = classScope(u);
-  const now = today(db, u);
-  const rows = db.all(
-    `SELECT s.id, s.class_id, s.date, s.start_time, s.end_time, s.status, s.is_makeup, s.kind, c.code, c.course_id, co.name AS course_name, r.minutes AS taught_minutes
-       FROM sessions s JOIN classes c ON c.id = s.class_id JOIN courses co ON co.id = c.course_id
-       LEFT JOIN teaching_records r ON r.session_id = s.id
-      WHERE ${sc.where} AND substr(s.date, 1, 4) = ? ORDER BY s.date, s.start_time`,
-    ...sc.params, year,
-  );
-  const sessions: Array<PaySession & { code: string; courseName: string; start: string; status: string }> = [];
-  let unrecorded = 0, cancelled = 0;
-  for (const r of rows) {
-    if (r.taught_minutes != null) sessions.push({ id: r.id, classId: r.class_id, courseId: r.course_id, date: r.date, minutes: r.taught_minutes, state: 'completed', isMakeup: !!r.is_makeup, code: r.code, courseName: r.course_name, start: r.start_time, status: r.status });
-    else if (r.status === 'planned' && r.date >= now) sessions.push({ id: r.id, classId: r.class_id, courseId: r.course_id, date: r.date, minutes: durationMinutes(r.start_time, r.end_time), state: 'planned', isMakeup: !!r.is_makeup, code: r.code, courseName: r.course_name, start: r.start_time, status: r.status });
-    else if (r.status === 'planned') unrecorded++;
-    else if (r.status === 'cancelled') cancelled++;
-  }
-  const rates = db.all('SELECT * FROM rates WHERE owner_id = ? ORDER BY effective_from', u.id).map((r) => ({ id: r.id, classId: r.class_id, courseId: r.course_id, mode: r.mode, amount: r.amount, effectiveFrom: r.effective_from, currency: r.currency })) as Array<Rate & { currency: string }>;
-  const adjustments = db.all('SELECT * FROM pay_adjustments WHERE owner_id = ? AND substr(month, 1, 4) = ? ORDER BY month, id', u.id, year);
-  const payments = db.all('SELECT * FROM payments WHERE owner_id = ? AND substr(month, 1, 4) = ? ORDER BY month, id', u.id, year);
-  const months = monthlyPay(sessions, rates, adjustments as Array<{ month: string; amount: number }>).map((m) => {
-    const p = payments.filter((x) => x.month === m.month);
-    return { ...m, confirmed: p.filter((x) => x.status === 'confirmed').reduce((s, x) => s + x.amount, 0), paid: p.filter((x) => x.status === 'paid').reduce((s, x) => s + x.amount, 0) };
-  });
-  const lines = sessions.filter((s) => s.state === 'completed').map((s) => {
-    const rate = resolveRate(rates, s);
-    return { ...s, rate: rate ? `${rate.mode === 'hourly' ? `${rate.amount}/h` : `${rate.amount}/session`}` : null, amount: sessionPay(rate, s.minutes) };
-  });
-  return { year, months, lines, rates, adjustments, payments, unrecorded, cancelled, currency: rates[0]?.currency ?? 'USD' };
-}
+import { payOverview } from './pay.ts';
 
 // ---------------------------------------------------------------------------------------------
 // Dashboard
@@ -90,7 +55,7 @@ export function dashboard(db: DB, u: User) {
     return g.rows.filter((r) => r.atRisk && r.enrollmentStatus === 'active').map((r) => ({ classId: c.id, code: c.code, enrollmentId: r.enrollmentId, studentCode: r.code, nameKm: r.nameKm, nameLatin: r.nameLatin, total: r.total, reason: r.riskReason }));
   });
 
-  const pay = payData(db, u, now.slice(0, 4));
+  const pay = payOverview(db, u, now.slice(0, 4));
   const month = pay.months.find((m) => m.month === monthOf(now)) ?? null;
   const proposals = db.all(`SELECT p.id, p.class_id, p.reason, c.code FROM schedule_proposals p JOIN classes c ON c.id = p.class_id WHERE p.status = 'pending' AND p.class_id IN (${inList})`);
 

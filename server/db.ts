@@ -93,6 +93,8 @@ const TRIGGER_MESSAGES: Record<string, [number, string]> = {
   ATTENDANCE_WRONG_CLASS: [422, 'This student is not enrolled in the class for this session.'],
   SESSION_HAS_HISTORY: [409, 'This session has teaching or attendance records and cannot be deleted.'],
   SESSION_HAS_ATTENDANCE: [409, 'This session already has attendance records. Clear them before cancelling or moving it.'],
+  PAY_LOCKED: [409, 'This is part of an approved pay statement. Undo the approval first.'],
+  PAY_PAID: [409, 'This pay statement is marked paid and cannot be changed.'],
 };
 
 export function translateDbError(e: unknown): AppError | null {
