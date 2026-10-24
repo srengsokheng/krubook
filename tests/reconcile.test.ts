@@ -262,3 +262,23 @@ describe('health endpoint', () => {
     expect(r.headers.get('content-security-policy')).toMatch(/default-src 'self'/);
   });
 });
+
+describe('dashboard at-risk cache', () => {
+  it('updates as soon as a grade changes', async () => {
+    const first = (await call('GET', '/dashboard')).body;
+    const again = (await call('GET', '/dashboard')).body;
+    expect(again.atRiskTotal).toBe(first.atRiskTotal);
+    // Give a student who is not at risk zero on every manual component: they must appear at once.
+    const cls = db().get("SELECT id FROM classes WHERE code = 'ASL3'")!.id;
+    const g = (await call('GET', `/classes/${cls}/gradebook`)).body;
+    const target = g.rows.find((r: any) => !r.atRisk && r.enrollmentStatus === 'active');
+    const ops = g.config.components.filter((c: any) => c.kind === 'manual').map((c: any, i: number) => ({ opId: `z${i}`, type: 'score', enrollmentId: target.enrollmentId, componentId: c.id, value: 0, baseVersion: target.scores[c.id]?.version ?? null }));
+    await call('POST', '/sync', { ops });
+    const after = (await call('GET', '/dashboard')).body;
+    expect(after.atRiskTotal).toBe(first.atRiskTotal + 1);
+    // And it disappears again when the scores are restored.
+    const back = g.config.components.filter((c: any) => c.kind === 'manual').map((c: any, i: number) => ({ opId: `b${i}`, type: 'score', enrollmentId: target.enrollmentId, componentId: c.id, value: target.scores[c.id]?.value ?? null, baseVersion: db().get('SELECT version FROM scores WHERE enrollment_id = ? AND component_id = ?', target.enrollmentId, c.id)?.version ?? null }));
+    await call('POST', '/sync', { ops: back });
+    expect((await call('GET', '/dashboard')).body.atRiskTotal).toBe(first.atRiskTotal);
+  });
+});

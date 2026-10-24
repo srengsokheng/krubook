@@ -9,6 +9,34 @@ import { payOverview } from './pay.ts';
 // ---------------------------------------------------------------------------------------------
 // Dashboard
 
+// At-risk students per class, remembered until anything that affects them changes. The key
+// covers every input: scores and attendance (count + sum of row versions, so any edit or delete
+// changes it), the grading setup, enrollments and student names, and session statuses.
+const riskCache = new WeakMap<DB, Map<number, { key: string; rows: any[] }>>();
+function riskKey(db: DB, classId: number): string {
+  return (db.get(
+    `SELECT
+       (SELECT COUNT(*) || '/' || IFNULL(SUM(sc.version), 0) FROM scores sc JOIN enrollments e ON e.id = sc.enrollment_id WHERE e.class_id = ?) || '|' ||
+       (SELECT COUNT(*) || '/' || IFNULL(SUM(a.version), 0) FROM attendance a JOIN sessions s ON s.id = a.session_id WHERE s.class_id = ?) || '|' ||
+       (SELECT IFNULL(updated_at, '') || status || attendance_rule || target_total || pass_mark FROM grade_configs WHERE class_id = ?) || '|' ||
+       (SELECT IFNULL(group_concat(c.id || ':' || c.max_score || ':' || c.kind), '') FROM grade_components c JOIN grade_configs g ON g.id = c.config_id WHERE g.class_id = ?) || '|' ||
+       (SELECT IFNULL(group_concat(e.id || e.status || IFNULL(st.name_km, '') || IFNULL(st.name_latin, '') || st.student_code), '') FROM enrollments e JOIN students st ON st.id = e.student_id WHERE e.class_id = ?) || '|' ||
+       (SELECT IFNULL(group_concat(id || status), '') FROM sessions WHERE class_id = ?) AS k`,
+    classId, classId, classId, classId, classId, classId,
+  ) as { k: string }).k;
+}
+function atRiskFor(db: DB, u: User, c: Record<string, any>) {
+  const key = riskKey(db, c.id);
+  let cache = riskCache.get(db);
+  if (!cache) riskCache.set(db, (cache = new Map()));
+  const hit = cache.get(c.id);
+  if (hit && hit.key === key) return hit.rows;
+  const g = gradebook(db, u, c.id, { activeOnly: true });
+  const rows = g.rows.filter((r) => r.atRisk).map((r) => ({ classId: c.id, code: c.code, enrollmentId: r.enrollmentId, studentCode: r.code, nameKm: r.nameKm, nameLatin: r.nameLatin, total: r.total, reason: r.riskReason }));
+  cache.set(c.id, { key, rows });
+  return rows;
+}
+
 export function dashboard(db: DB, u: User) {
   const sc = classScope(u);
   const now = today(db, u);
@@ -50,10 +78,7 @@ export function dashboard(db: DB, u: User) {
     return { classId: c.id, code: c.code, courseName: c.course_name, color: c.color, status: c.status, progress: sum.progress, nextPart: sum.nextPart, unrecorded: sum.unrecorded.length };
   });
 
-  const atRisk = classes.filter((c) => c.status === 'active').flatMap((c) => {
-    const g = gradebook(db, u, c.id, { activeOnly: true });
-    return g.rows.filter((r) => r.atRisk).map((r) => ({ classId: c.id, code: c.code, enrollmentId: r.enrollmentId, studentCode: r.code, nameKm: r.nameKm, nameLatin: r.nameLatin, total: r.total, reason: r.riskReason }));
-  });
+  const atRisk = classes.filter((c) => c.status === 'active').flatMap((c) => atRiskFor(db, u, c));
 
   const pay = payOverview(db, u, now.slice(0, 4));
   const month = pay.months.find((m) => m.month === monthOf(now)) ?? null;
