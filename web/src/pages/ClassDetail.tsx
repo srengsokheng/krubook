@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, NavLink, Route, Routes, useParams } from 'react-router-dom';
 import { api, download, useApi } from '../api.ts';
 import { useI18n } from '../i18n.tsx';
-import { D, ErrorNote, Field, Kind, Loading, MaterialStatus, Menu, Notice, Pill, ProgressPill, useAction, useToast } from '../ui.tsx';
+import { D, ErrorNote, Field, Kind, Loading, MaterialStatus, Menu, Notice, Pill, plural, ProgressPill, useAction, useToast } from '../ui.tsx';
 import { PlanTab } from './PlanTab.tsx';
 import { RosterTab } from './RosterTab.tsx';
 import { AttendanceTab } from './AttendanceTab.tsx';
@@ -61,7 +61,7 @@ function Overview({ c }: { c: any }) {
     <div className="grid side">
       <div className="stack" style={{ gap: 16 }}>
         {c.pendingProposal && <Notice tone="warn">A schedule change is waiting for review: {c.pendingProposal.reason}. <Link to={`/classes/${c.id}/plan`}>Review it</Link></Notice>}
-        {s.unrecorded.length > 0 && <Notice tone="warn">{s.unrecorded.length} past session(s) have no teaching record yet, so they do not count as taught: {s.unrecorded.slice(0, 4).map((u: any) => formatDate(u.date, lang)).join(', ')}{s.unrecorded.length > 4 ? '…' : ''}. <Link to={`/classes/${c.id}/plan?session=${s.unrecorded[0].id}`}>Record the first one</Link></Notice>}
+        {s.unrecorded.length > 0 && <Notice tone="warn">{plural(s.unrecorded.length, 'past session has', 'past sessions have')} no teaching record yet, so {s.unrecorded.length === 1 ? 'it does' : 'they do'} not count as taught: {s.unrecorded.slice(0, 4).map((u: any) => formatDate(u.date, lang)).join(', ')}{s.unrecorded.length > 4 ? '…' : ''}. <Link to={`/classes/${c.id}/plan?session=${s.unrecorded[0].id}`}>Record the first one</Link></Notice>}
         <section className="panel">
           <div className="panel-head"><h2>Where the class is</h2><ProgressPill status={p.status} reason={p.reason} /></div>
           <div className="panel-body stack">

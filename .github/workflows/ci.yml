@@ -25,6 +25,15 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npx vite build
+      # Browser tests on a fresh demo database: every page at desktop, tablet, phone and dark mode, plus edit flows.
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-results
+          path: e2e-results
+          retention-days: 7
       - uses: actions/upload-artifact@v4
         with:
           name: web-dist

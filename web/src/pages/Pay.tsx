@@ -1,7 +1,8 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api, download, useApi } from '../api.ts';
 import { useI18n } from '../i18n.tsx';
-import { Confirm, D, Dialog, Empty, ErrorNote, Field, Icon, Loading, Menu, Notice, Pager, Pill, TabBar, money, useAction, useTab, useToast } from '../ui.tsx';
+import { Confirm, D, Dialog, Empty, ErrorNote, Field, Icon, Loading, Menu, Notice, Pager, Pill, TabBar, money, plural, useAction, useTab, useToast } from '../ui.tsx';
 
 const TABS = ['months', 'sessions', 'rates', 'adjustments'] as const;
 type Tab = (typeof TABS)[number];
@@ -31,7 +32,7 @@ export function Pay() {
 
       {!p.rates.some((r: any) => r.active) && <Notice tone="warn">No active pay rate, so earnings show as 0. <a href="#rates" onClick={(e) => { e.preventDefault(); setTab('rates'); }}>Add a rate</a></Notice>}
       {p.unrated > 0 && p.rates.some((r: any) => r.active) && <Notice tone="warn">{p.unrated} taught session(s) have no matching rate.</Notice>}
-      {p.unrecorded > 0 && <Notice tone="info">{p.unrecorded} past session(s) have no teaching record yet and are not counted.</Notice>}
+      {p.unrecorded > 0 && <Notice tone="info">{plural(p.unrecorded, 'past session has', 'past sessions have')} no teaching record yet and {p.unrecorded === 1 ? 'is' : 'are'} not counted. <Link to="/review">Review them</Link></Notice>}
 
       <div className="figures">
         <div className="figure"><span className="eyebrow">Hours taught</span><span className="value">{(p.totals.taughtMinutes / 60).toFixed(1)}</span><span className="faint xs">{p.totals.taughtSessions} sessions</span></div>
@@ -60,7 +61,7 @@ function Months({ p, reload }: { p: any; reload: () => void }) {
   return (
     <>
       <div className="panel table-wrap">
-        <table className="table">
+        <table className="table stack">
           <thead><tr><th>Month</th><th className="num">Hours</th><th className="num">Earned</th><th>Status</th><th className="no-print" /></tr></thead>
           <tbody>
             {p.months.map((m: any) => {
@@ -68,18 +69,18 @@ function Months({ p, reload }: { p: any; reload: () => void }) {
               const canApprove = m.estimated !== 0 && m.month <= thisMonth();
               return (
                 <tr key={m.month}>
-                  <td className="mono">{m.month}{m.expected > 0 && <div className="faint xs">+ {money(m.expected, cur)} planned</div>}</td>
-                  <td className="num">{(m.taughtMinutes / 60).toFixed(1)}</td>
-                  <td className="num"><b>{money(m.total, cur)}</b></td>
-                  <td>
+                  <td data-label="Month" className="mono"><span>{m.month}{m.expected > 0 && <div className="faint xs">+ {money(m.expected, cur)} planned</div>}</span></td>
+                  <td data-label="Hours" className="num">{(m.taughtMinutes / 60).toFixed(1)}</td>
+                  <td data-label="Earned" className="num"><b>{money(m.total, cur)}</b></td>
+                  <td data-label="Status">
                     <div className="row" style={{ gap: 6 }}>
                       {sts.map((s: any) => <button key={s.id} className="btn ghost sm" style={{ padding: 0 }} onClick={() => setOpen(s.id)}><Pill tone={s.status === 'paid' ? 'ok' : 'accent'}>{s.status === 'paid' ? `Paid ${money(s.paidAmount, cur)}` : `Approved ${money(s.total, cur)}`}</Pill></button>)}
                       {m.estimated !== 0 && <Pill tone="warn">{money(m.estimated, cur)} not approved</Pill>}
                     </div>
                   </td>
-                  <td className="no-print" style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
-                    {canApprove && <button className="btn sm primary" disabled={busy} onClick={() => approve(m.month)}>Approve</button>}{' '}
-                    {sts.filter((s: any) => s.status === 'approved').map((s: any) => <Menu key={s.id} label="Statement" items={[{ label: 'Mark as paid…', onSelect: () => setPaying(s) }, { label: 'View sessions', onSelect: () => setOpen(s.id) }, { label: 'Undo approval', danger: true, onSelect: () => setUndo(s) }]} />)}
+                  <td data-label="" className="no-print" style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
+                    <span>{canApprove && <button className="btn sm primary" disabled={busy} onClick={() => approve(m.month)}>Approve</button>}{' '}
+                    {sts.filter((s: any) => s.status === 'approved').map((s: any) => <Menu key={s.id} label="Statement" items={[{ label: 'Mark as paid…', onSelect: () => setPaying(s) }, { label: 'View sessions', onSelect: () => setOpen(s.id) }, { label: 'Undo approval', danger: true, onSelect: () => setUndo(s) }]} />)}</span>
                   </td>
                 </tr>
               );
@@ -145,16 +146,16 @@ function Sessions({ year, currency }: { year: string; currency: string }) {
   return (
     <div className="panel">
       <div className="table-wrap">
-        <table className="table">
+        <table className="table stack">
           <thead><tr><th>Date</th><th>Class</th><th className="num">Minutes</th><th>Rate</th><th className="num">Amount</th><th>Status</th></tr></thead>
           <tbody>{data.items.map((l: any) => (
             <tr key={l.sessionId}>
-              <td className="mono small"><D date={l.date} /> {l.start}</td>
-              <td className="mono">{l.code}{l.isMakeup && <span className="pill" style={{ marginLeft: 6 }}>make-up</span>}</td>
-              <td className="num">{l.minutes}</td>
-              <td className="small">{l.rate ?? <Pill tone="warn">no rate</Pill>}</td>
-              <td className="num">{money(l.amount, currency)}</td>
-              <td>{l.statementStatus ? <Pill tone={l.statementStatus === 'paid' ? 'ok' : 'accent'}>{l.statementStatus}</Pill> : <span className="faint small">estimate</span>}</td>
+              <td data-label="Date" className="mono small"><span><D date={l.date} /> {l.start}</span></td>
+              <td data-label="Class" className="mono"><span>{l.code}{l.isMakeup && <span className="pill" style={{ marginLeft: 6 }}>make-up</span>}</span></td>
+              <td data-label="Minutes" className="num">{l.minutes}</td>
+              <td data-label="Rate" className="small">{l.rate ?? <Pill tone="warn">no rate</Pill>}</td>
+              <td data-label="Amount" className="num">{money(l.amount, currency)}</td>
+              <td data-label="Status">{l.statementStatus ? <Pill tone={l.statementStatus === 'paid' ? 'ok' : 'accent'}>{l.statementStatus}</Pill> : <span className="faint small">estimate</span>}</td>
             </tr>
           ))}</tbody>
         </table>

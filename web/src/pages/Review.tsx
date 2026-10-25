@@ -56,20 +56,20 @@ function Sessions() {
             </div>
           </div>
           <div className="table-wrap">
-            <table className="table">
+            <table className="table stack">
               <thead><tr><th>Date</th><th>Type</th><th>Planned</th><th className="num">Pay if taught</th><th>Decision</th><th>Note</th></tr></thead>
               <tbody>{rows.map((s) => (
                 <tr key={s.sessionId}>
-                  <td className="mono small" style={{ whiteSpace: 'nowrap' }}><D date={s.date} /> {s.start}–{s.end}</td>
-                  <td><Kind kind={s.kind} /></td>
-                  <td className="small">{s.plannedPart ? `${s.plannedPart.code} ${s.plannedPart.title}` : s.note ?? 'Review / buffer'}</td>
-                  <td className="num mono small">{s.estimatedPay == null ? <Pill tone="warn">no rate</Pill> : money(s.estimatedPay)}</td>
-                  <td style={{ minWidth: 170 }}>
+                  <td data-label="Date" className="mono small" style={{ whiteSpace: 'nowrap' }}><span><D date={s.date} /> {s.start}–{s.end}</span></td>
+                  <td data-label="Type"><Kind kind={s.kind} /></td>
+                  <td data-label="Planned" className="small">{s.plannedPart ? `${s.plannedPart.code} ${s.plannedPart.title}` : s.note ?? 'Review / buffer'}</td>
+                  <td data-label="Pay if taught" className="num mono small">{s.estimatedPay == null ? <Pill tone="warn">no rate</Pill> : money(s.estimatedPay)}</td>
+                  <td data-label="Decision" style={{ minWidth: 170 }}>
                     <select aria-label={`Decision for ${code} ${s.date}`} value={choice[s.sessionId] ?? ''} onChange={(e) => set([s.sessionId], e.target.value as Choice)}>
                       {CHOICES.map(([c, label]) => <option key={c} value={c}>{label}</option>)}
                     </select>
                   </td>
-                  <td style={{ minWidth: 160 }}><input aria-label="Note" value={notes[s.sessionId] ?? ''} onChange={(e) => setNotes({ ...notes, [s.sessionId]: e.target.value })} placeholder="optional" /></td>
+                  <td data-label="Note" style={{ minWidth: 160 }}><input aria-label="Note" value={notes[s.sessionId] ?? ''} onChange={(e) => setNotes({ ...notes, [s.sessionId]: e.target.value })} placeholder="optional" /></td>
                 </tr>
               ))}</tbody>
             </table>
@@ -77,7 +77,7 @@ function Sessions() {
         </section>
       ))}
 
-      <div className="row between panel panel-body" style={{ position: 'sticky', bottom: 0, zIndex: 5 }}>
+      <div className="row between panel panel-body sticky-actions">
         <span className="small"><b>{decided.length}</b> of {data.length} decided</span>
         <div className="row">
           <button className="btn" disabled={busy || !decided.length} onClick={doPreview}>Preview impact</button>
@@ -188,15 +188,15 @@ function StudentIds() {
         </div>
       </div>
       <div className="panel table-wrap">
-        <table className="table">
+        <table className="table stack">
           <thead><tr><th>Row</th><th>Official ID</th><th>In the file</th><th>Status</th><th>Assign to</th></tr></thead>
           <tbody>{shown.map((m: any) => (
             <tr key={m.row}>
-              <td className="mono faint">{m.row}</td>
-              <td className="mono">{m.officialId || '—'}</td>
-              <td className="small">{m.input.nameKm} <span className="faint">{m.input.nameLatin}</span>{m.input.classCode && <span className="faint mono"> · {m.input.classCode}</span>}</td>
-              <td><Pill tone={STATUS_TONE[m.status]}>{m.status}</Pill><div className="faint xs" style={{ maxWidth: 260 }}>{m.reason}</div></td>
-              <td style={{ minWidth: 240 }}>
+              <td data-label="Row" className="mono faint">{m.row}</td>
+              <td data-label="Official ID" className="mono">{m.officialId || '—'}</td>
+              <td data-label="In the file" className="small">{m.input.nameKm} <span className="faint">{m.input.nameLatin}</span>{m.input.classCode && <span className="faint mono"> · {m.input.classCode}</span>}</td>
+              <td data-label="Status"><Pill tone={STATUS_TONE[m.status]}>{m.status}</Pill><div className="faint xs" style={{ maxWidth: 260 }}>{m.reason}</div></td>
+              <td data-label="Assign to" style={{ minWidth: 240 }}>
                 {['match', 'ambiguous'].includes(m.status) ? (
                   <select aria-label={`Student for row ${m.row}`} value={pick[m.row] ?? ''} onChange={(e) => setPick({ ...pick, [m.row]: e.target.value ? +e.target.value : '' })}>
                     <option value="">Leave unchanged</option>

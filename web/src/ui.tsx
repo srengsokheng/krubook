@@ -188,6 +188,8 @@ export function Confirm({ title, body, confirmLabel, danger, onConfirm, onClose 
   );
 }
 
+/** "1 past session has" / "3 past sessions have". */
+export const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 export const money = (n: number | null | undefined, currency = 'USD') =>
   n == null ? '—' : new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 2 }).format(n);
 export const fmt = (n: number | null | undefined, digits = 2) => (n == null ? '—' : String(Math.round(n * 10 ** digits) / 10 ** digits));

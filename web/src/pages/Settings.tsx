@@ -70,19 +70,19 @@ export function Settings({ me }: { me: Me }) {
         <section className="panel">
           <div className="panel-head"><h2>{t('Holidays')}</h2><span className="faint small">{holidays?.length ?? 0}</span></div>
           <div className="panel-body stack">
-            <Notice tone="info">Lunar holidays move every year. Entries marked “check” are estimates; confirm them against the government’s official list and edit the date if needed.</Notice>
+            <Notice tone="info">Lunar holidays move every year. Entries marked “estimate” need checking against the government’s official list; edit the date if needed. “Verified” dates match the published sub-decree (hover for the source).</Notice>
             <div className="row">
               <select aria-label="Year" value={year} onChange={(e) => setYear(e.target.value)} style={{ width: 100 }}>{[...new Set((holidays ?? []).map((h) => h.date.slice(0, 4)))].map((y) => <option key={y}>{y}</option>)}</select>
               <HolidayCheck />
             </div>
             <div className="table-wrap panel" style={{ maxHeight: 360, overflowY: 'auto' }}>
-              <table className="table">
+              <table className="table stack">
                 <tbody>{(holidays ?? []).filter((h) => h.date.startsWith(year)).map((h) => (
                   <tr key={h.id}>
-                    <td style={{ width: 150 }}><input type="date" aria-label={`Date of ${h.name}`} defaultValue={h.date} onBlur={(e) => e.target.value !== h.date && run(() => api(`/holidays/${h.id}`, { method: 'PUT', body: { date: e.target.value } }), 'Holiday date updated').then(reloadHol)} /></td>
-                    <td className="small">{h.name}{h.name_km && <div className="faint xs">{h.name_km}</div>}{h.term_name && <div className="faint xs">only {h.term_name}</div>}</td>
-                    <td>{h.approx ? <Pill tone="warn" title="Estimated date; confirm against the official list">estimate</Pill> : h.verified_note ? <Pill tone="ok" title={h.verified_note}>verified</Pill> : h.source === 'national' ? <Pill>national</Pill> : <Pill tone="accent">yours</Pill>}</td>
-                    <td><button className="btn sm ghost" aria-label={`Remove ${h.name}`} onClick={() => run(() => api(`/holidays/${h.id}`, { method: 'DELETE' }), 'Holiday removed').then(reloadHol)}><Icon name="trash" /></button></td>
+                    <td data-label="Date" style={{ width: 150 }}><input type="date" aria-label={`Date of ${h.name}`} defaultValue={h.date} onBlur={(e) => e.target.value !== h.date && run(() => api(`/holidays/${h.id}`, { method: 'PUT', body: { date: e.target.value } }), 'Holiday date updated').then(reloadHol)} /></td>
+                    <td data-label="Holiday" className="small"><span>{h.name}{h.name_km && <div className="faint xs">{h.name_km}</div>}{h.term_name && <div className="faint xs">only {h.term_name}</div>}</span></td>
+                    <td data-label="Status">{h.approx ? <Pill tone="warn" title="Estimated date; confirm against the official list">estimate</Pill> : h.verified_note ? <Pill tone="ok" title={h.verified_note}>verified</Pill> : h.source === 'national' ? <Pill>national</Pill> : <Pill tone="accent">yours</Pill>}</td>
+                    <td data-label=""><button className="btn sm ghost" aria-label={`Remove ${h.name}`} onClick={() => run(() => api(`/holidays/${h.id}`, { method: 'DELETE' }), 'Holiday removed').then(reloadHol)}><Icon name="trash" /></button></td>
                   </tr>
                 ))}</tbody>
               </table>

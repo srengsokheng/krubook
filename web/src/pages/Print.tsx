@@ -19,8 +19,8 @@ export function PrintView() {
 
 function Sheet({ title, cls, children }: { title: string; cls: any; children: React.ReactNode }) {
   return (
-    <div style={{ padding: 24, background: 'var(--surface)', minHeight: '100%' }}>
-      <div className="row between" style={{ marginBottom: 14 }}>
+    <div className="print-sheet">
+      <div className="row between" style={{ marginBottom: 14, gap: 12 }}>
         <div>
           <div className="eyebrow">KruBook · {title}</div>
           <h1 className="mono" style={{ fontSize: '1.3rem' }}>{cls?.code} <span style={{ fontFamily: 'var(--font-body)', fontWeight: 500 }}>{cls?.course?.name}</span></h1>
@@ -28,7 +28,7 @@ function Sheet({ title, cls, children }: { title: string; cls: any; children: Re
         </div>
         <button className="btn primary no-print" onClick={() => window.print()}><Icon name="printer" />Print or save as PDF</button>
       </div>
-      {children}
+      <div className="print-scroll">{children}</div>
     </div>
   );
 }
