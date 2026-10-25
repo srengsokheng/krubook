@@ -50,3 +50,19 @@ merge to `main` → CI deploys production.
 Setting staging up needs a DNS record and a second service and nginx site, so it is left for your
 go-ahead. Until then, migrations are tested by restoring a production backup on a separate machine
 (see `docs/BACKUPS.md`, *Verified*).
+
+## Updating from the Excel workbook
+
+The workbook import builds a new database, so never run it against the live one. To bring in new scores
+from an updated workbook, import it into a scratch file and merge only the scores the app does not have:
+
+```bash
+npx tsx server/import-workbook.ts Teaching_Schedule_and_Progress.xlsx --db /tmp/new.sqlite
+npx tsx scripts/merge-scores.ts /tmp/new.sqlite /var/lib/krubook/krubook.sqlite            # preview
+systemctl start krubook-backup.service                                                    # backup first
+sudo -u krubook npx tsx scripts/merge-scores.ts /tmp/new.sqlite /var/lib/krubook/krubook.sqlite --apply
+rm /tmp/new.sqlite
+```
+
+Scores already in the app are never overwritten (differences are listed for you to fix in the gradebook),
+and running it twice adds nothing. Student, session and teaching-record differences are listed, not applied.
