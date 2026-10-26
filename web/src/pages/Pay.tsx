@@ -2,12 +2,10 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, download, useApi } from '../api.ts';
 import { useI18n } from '../i18n.tsx';
-import { Confirm, D, Dialog, Empty, ErrorNote, Field, Icon, Loading, Menu, Notice, Pager, Pill, TabBar, money, plural, useAction, useTab, useToast } from '../ui.tsx';
+import { Confirm, D, Dialog, Empty, ErrorNote, Field, Icon, Loading, Menu, Notice, Pager, Pill, PayMonth, TabBar, money, plural, useAction, useTab, useToast } from '../ui.tsx';
 
 const TABS = ['months', 'sessions', 'rates', 'adjustments'] as const;
 type Tab = (typeof TABS)[number];
-const thisMonth = () => new Date().toISOString().slice(0, 7);
-
 export function Pay() {
   const { t } = useI18n();
   const toast = useToast();
@@ -61,15 +59,15 @@ function Months({ p, reload }: { p: any; reload: () => void }) {
   return (
     <>
       <div className="panel table-wrap">
-        <table className="table stack">
-          <thead><tr><th>Month</th><th className="num">Hours</th><th className="num">Earned</th><th>Status</th><th className="no-print" /></tr></thead>
+        <table className="table mobile-cards">
+          <thead><tr><th>Pay month</th><th className="num">Hours</th><th className="num">Earned</th><th>Status</th><th className="no-print" /></tr></thead>
           <tbody>
             {p.months.map((m: any) => {
               const sts = p.statements.filter((s: any) => s.month === m.month);
-              const canApprove = m.estimated !== 0 && m.month <= thisMonth();
+              const canApprove = m.estimated !== 0 && m.month <= p.currentMonth;
               return (
                 <tr key={m.month}>
-                  <td data-label="Month" className="mono"><span>{m.month}{m.expected > 0 && <div className="faint xs">+ {money(m.expected, cur)} planned</div>}</span></td>
+                  <td data-label="Pay month"><span><PayMonth month={m.month} from={m.from} to={m.to} />{m.expected > 0 && <div className="faint xs mono">+ {money(m.expected, cur)} planned</div>}</span></td>
                   <td data-label="Hours" className="num">{(m.taughtMinutes / 60).toFixed(1)}</td>
                   <td data-label="Earned" className="num"><b>{money(m.total, cur)}</b></td>
                   <td data-label="Status">
@@ -88,7 +86,7 @@ function Months({ p, reload }: { p: any; reload: () => void }) {
           </tbody>
         </table>
       </div>
-      <p className="faint xs">Approving a month fixes its sessions, rates and amounts. Later rate changes then only affect months that are not approved.</p>
+      <p className="faint xs">Each pay month covers the teaching dates shown under it (change the pay period in Settings). Approving a month fixes its sessions, rates and amounts. Later rate changes then only affect months that are not approved.</p>
       {paying && <MarkPaid s={paying} onClose={() => setPaying(null)} onDone={reload} />}
       {undo && <Confirm title={`Undo the ${undo.month} approval?`} body="Its sessions go back to estimates and will use the current rates." confirmLabel="Undo approval" danger onConfirm={() => run(() => api(`/pay/statements/${undo.id}`, { method: 'DELETE' }), 'Approval undone').then(reload)} onClose={() => setUndo(null)} />}
       {open && <StatementDetail id={open} onClose={() => setOpen(null)} />}
@@ -146,7 +144,7 @@ function Sessions({ year, currency }: { year: string; currency: string }) {
   return (
     <div className="panel">
       <div className="table-wrap">
-        <table className="table stack">
+        <table className="table mobile-cards">
           <thead><tr><th>Date</th><th>Class</th><th className="num">Minutes</th><th>Rate</th><th className="num">Amount</th><th>Status</th></tr></thead>
           <tbody>{data.items.map((l: any) => (
             <tr key={l.sessionId}>
@@ -228,7 +226,7 @@ function Adjustments({ p, reload }: { p: any; reload: () => void }) {
   const { run } = useAction();
   return (
     <div className="stack">
-      <div className="row between"><p className="faint small">Extra pay or deductions, such as invigilation. They are fixed once their month is approved.</p><button className="btn primary" onClick={() => setEdit({ month: thisMonth(), amount: '', note: '' })}><Icon name="plus" />Add adjustment</button></div>
+      <div className="row between"><p className="faint small">Extra pay or deductions, such as invigilation. They are fixed once their month is approved.</p><button className="btn primary" onClick={() => setEdit({ month: p.currentMonth, amount: '', note: '' })}><Icon name="plus" />Add adjustment</button></div>
       {p.adjustments.length ? (
         <div className="panel table-wrap">
           <table className="table">

@@ -35,6 +35,9 @@ test.describe('signed in', () => {
 
   test('pay: approve a month, then undo the approval', async ({ page }) => {
     await page.goto('/pay');
+    // Pay months run 16th of the previous month to the 15th.
+    await expect(page.getByText('September 2026')).toBeVisible();
+    await expect(page.getByText('16 Aug – 15 Sep')).toBeVisible();
     await page.getByRole('button', { name: 'Approve' }).first().click();
     await expect(page.getByText(/^Approved \$/).first()).toBeVisible();
     const approved = await (await page.request.get('/api/pay?year=2026')).json();

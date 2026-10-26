@@ -8,6 +8,7 @@ import type { DB } from '../server/db.ts';
 import { createApp, createHolder } from '../server/app.ts';
 import { addAccount, type User } from '../server/auth.ts';
 import { approveMonth, markPaid, payLines, payOverview, unapprove } from '../server/services/pay.ts';
+import { payMonthOf, payPeriod } from '../shared/pay.ts';
 import { cancelSession, completeSession, reopenSession } from '../server/services/plan.ts';
 
 // Deterministic fixtures: sessions on fixed dates with known durations and rates.
@@ -185,5 +186,80 @@ describe('teaching pay', () => {
     expect(r).toMatchObject({ total: 12, page: 2, pageSize: 10, pages: 2 });
     expect(r.items).toHaveLength(2);
     expect((await call('GET', '/pay/lines?pageSize=7')).status).toBe(400);
+  });
+});
+
+describe('pay periods (16th of last month to 15th of this month by default)', () => {
+  it('maps dates to pay months and pay months to date ranges, across the year end', () => {
+    expect(payMonthOf('2026-08-15')).toBe('2026-08');
+    expect(payMonthOf('2026-08-16')).toBe('2026-09');
+    expect(payMonthOf('2026-09-15')).toBe('2026-09');
+    expect(payMonthOf('2026-12-20')).toBe('2027-01');
+    expect(payPeriod('2026-09')).toEqual({ from: '2026-08-16', to: '2026-09-15' });
+    expect(payPeriod('2027-01')).toEqual({ from: '2026-12-16', to: '2027-01-15' });
+    expect(payMonthOf('2026-08-16', 1)).toBe('2026-08');
+    expect(payPeriod('2026-02', 1)).toEqual({ from: '2026-02-01', to: '2026-02-28' });
+  });
+
+  it('16 Aug – 15 Sep is September pay; 16 Sep starts October', () => {
+    hourly(10);
+    taught(session(classA, '2026-08-16', '13:00', '14:00'));
+    taught(session(classA, '2026-09-15', '13:00', '15:00'));
+    taught(session(classA, '2026-09-16', '13:00', '16:00'));
+    const p = payOverview(db, u, '2026');
+    expect(p.months.find((m) => m.month === '2026-09')).toMatchObject({ from: '2026-08-16', to: '2026-09-15', taughtSessions: 2, estimated: 30 });
+    expect(p.months.find((m) => m.month === '2026-10')).toMatchObject({ from: '2026-09-16', to: '2026-10-15', taughtSessions: 1, estimated: 30 });
+    expect(p.months.find((m) => m.month === '2026-08')).toBeUndefined();
+  });
+
+  it('approving September freezes exactly 16 Aug – 15 Sep, and each session only once', () => {
+    hourly(10);
+    taught(session(classA, '2026-08-20', '13:00', '14:00'));
+    taught(session(classA, '2026-09-10', '13:00', '14:00'));
+    const oct = session(classA, '2026-09-20', '13:00', '14:00');
+    taught(oct);
+    const st = approveMonth(db, u, '2026-09');
+    expect(st).toMatchObject({ month: '2026-09', sessions: 2, total: 20 });
+    expect(payLines(db, u, '2026-09-16', '2026-10-15').find((l) => l.sessionId === oct)?.statementId).toBeNull();
+    expect(() => approveMonth(db, u, '2026-09')).toThrow(/Nothing new to approve/);
+  });
+
+  it('December teaching after the 15th is January pay of the next year', () => {
+    hourly(10);
+    process.env.KRUBOOK_TODAY = '2026-12-20';
+    try {
+      taught(session(classA, '2026-12-18', '13:00', '14:00'));
+      expect(payOverview(db, u, '2026').months.find((m) => m.month === '2026-12')).toBeUndefined();
+      expect(payOverview(db, u, '2027').months[0]).toMatchObject({ month: '2027-01', taughtSessions: 1, estimated: 10 });
+      expect(approveMonth(db, u, '2027-01')).toMatchObject({ sessions: 1, total: 10 });
+    } finally { process.env.KRUBOOK_TODAY = '2026-10-24'; }
+  });
+
+  it('a future pay month cannot be approved', () => {
+    hourly(10);
+    // Today is 24 Oct 2026, inside November pay (16 Oct – 15 Nov); December has not started.
+    expect(() => approveMonth(db, u, '2026-12')).toThrow(/pay period has started/);
+  });
+
+  it('the start day is a setting; 1 means calendar months; it cannot change once months are approved', async () => {
+    hourly(10);
+    taught(session(classA, '2026-09-20', '13:00', '14:00'));
+    expect((await call('GET', '/settings')).body.payPeriodStart).toBe(16);
+    expect(payOverview(db, u, '2026').months[0].month).toBe('2026-10');
+    expect((await call('PUT', '/settings', { payPeriodStart: 1 })).status).toBe(200);
+    expect(payOverview(db, u, '2026').months[0]).toMatchObject({ month: '2026-09', from: '2026-09-01', to: '2026-09-30' });
+    expect((await call('PUT', '/settings', { payPeriodStart: 29 })).status).toBe(422);
+    approveMonth(db, u, '2026-09');
+    expect((await call('PUT', '/settings', { payPeriodStart: 16 })).status).toBe(409);
+    expect((await call('PUT', '/settings', { payPeriodStart: 1 })).status).toBe(200);
+  });
+
+  it('the session list for a pay month uses its period', async () => {
+    hourly(10);
+    taught(session(classA, '2026-08-31', '13:00', '14:00'));
+    taught(session(classA, '2026-09-01', '13:00', '14:00'));
+    taught(session(classA, '2026-09-30', '13:00', '14:00'));
+    const r = await call('GET', '/pay/lines?month=2026-09');
+    expect(r.body.items.map((l: any) => l.date).sort()).toEqual(['2026-08-31', '2026-09-01']);
   });
 });

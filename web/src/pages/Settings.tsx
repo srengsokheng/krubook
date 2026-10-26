@@ -9,6 +9,8 @@ const STATUS_KEYS = ['planned', 'completed', 'cancelled', 'skipped', 'moved', 'a
 
 const TABS = ['general', 'holidays', 'reminders', 'backup', 'activity'] as const;
 
+const ordinal = (n: number) => `${n}${n % 10 === 1 && n !== 11 ? 'st' : n % 10 === 2 && n !== 12 ? 'nd' : n % 10 === 3 && n !== 13 ? 'rd' : 'th'}`;
+
 export function Settings({ me }: { me: Me }) {
   const { t, lang, setLang, setOverrides } = useI18n();
   const [tab, setTab] = useTab(TABS, 'general');
@@ -23,7 +25,7 @@ export function Settings({ me }: { me: Me }) {
   const [confirmRestore, setConfirmRestore] = useState(false);
   const [year, setYear] = useState(String(new Date().getFullYear()));
   const { busy, run } = useAction();
-  useEffect(() => { if (s) { setF({ timezone: s.timezone, notifyEnabled: s.notifyEnabled, notifyTime: s.notifyTime, telegramChat: s.telegramChat, telegramToken: '' }); setLabels(s.statusLabels ?? {}); } }, [s]);
+  useEffect(() => { if (s) { setF({ timezone: s.timezone, payPeriodStart: s.payPeriodStart, notifyEnabled: s.notifyEnabled, notifyTime: s.notifyTime, telegramChat: s.telegramChat, telegramToken: '' }); setLabels(s.statusLabels ?? {}); } }, [s]);
   if (error) return <div className="page"><ErrorNote error={error} retry={reload} /></div>;
   if (!s || !f) return <div className="page"><Loading /></div>;
 
@@ -41,14 +43,19 @@ export function Settings({ me }: { me: Me }) {
       <div className={tab === 'general' ? 'grid two' : 'stack'}>
         {tab === 'general' && (
         <section className="panel">
-          <div className="panel-head"><h2>Language and time</h2></div>
+          <div className="panel-head"><h2>Language, time and pay period</h2></div>
           <div className="panel-body stack">
             <Field label={t('Language')}>
               <div className="seg">{(['en', 'km'] as Lang[]).map((l) => <button key={l} className={lang === l ? 'on' : ''} onClick={() => { setLang(l); api('/settings', { method: 'PUT', body: { language: l } }).catch(() => {}); }}>{l === 'en' ? 'English' : 'ខ្មែរ'}</button>)}</div>
             </Field>
             <p className="faint xs">The Khmer interface covers navigation, headings, statuses and common actions; longer help text is still in English.</p>
             <Field label="Time zone" hint={`“Today” is ${s.today} in this zone. Cambodia does not use daylight saving time.`}><input id="st-tz" value={f.timezone} onChange={(e) => setF({ ...f, timezone: e.target.value })} /></Field>
-            <button className="btn primary" style={{ alignSelf: 'flex-start' }} disabled={busy} onClick={() => run(() => api('/settings', { method: 'PUT', body: { timezone: f.timezone } }), 'Saved').then(reload)}>Save</button>
+            <Field label="Pay period" hint={+f.payPeriodStart === 1 ? 'Each calendar month is paid on its own.' : `Teaching from the ${ordinal(+f.payPeriodStart)} of one month to the ${ordinal(+f.payPeriodStart - 1)} of the next is paid as the later month (e.g. ${f.payPeriodStart} Aug – ${+f.payPeriodStart - 1} Sep is September pay).`}>
+              <select id="st-pay" value={f.payPeriodStart} onChange={(e) => setF({ ...f, payPeriodStart: +e.target.value })}>
+                {Array.from({ length: 28 }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n === 1 ? 'Calendar month (1st – end of month)' : `${ordinal(n)} of last month – ${ordinal(n - 1)} of this month`}</option>)}
+              </select>
+            </Field>
+            <button className="btn primary" style={{ alignSelf: 'flex-start' }} disabled={busy} onClick={() => run(() => api('/settings', { method: 'PUT', body: { timezone: f.timezone, payPeriodStart: f.payPeriodStart } }), 'Saved').then(reload)}>Save</button>
           </div>
         </section>
         )}
@@ -76,7 +83,7 @@ export function Settings({ me }: { me: Me }) {
               <HolidayCheck />
             </div>
             <div className="table-wrap panel" style={{ maxHeight: 360, overflowY: 'auto' }}>
-              <table className="table stack">
+              <table className="table mobile-cards">
                 <tbody>{(holidays ?? []).filter((h) => h.date.startsWith(year)).map((h) => (
                   <tr key={h.id}>
                     <td data-label="Date" style={{ width: 150 }}><input type="date" aria-label={`Date of ${h.name}`} defaultValue={h.date} onBlur={(e) => e.target.value !== h.date && run(() => api(`/holidays/${h.id}`, { method: 'PUT', body: { date: e.target.value } }), 'Holiday date updated').then(reloadHol)} /></td>

@@ -1,11 +1,11 @@
 import { AppError, translateDbError, type DB, type Row } from '../db.ts';
 import type { User } from '../auth.ts';
-import { classScope, ownClass, ownSession, today } from './access.ts';
+import { classScope, ownClass, ownSession, payStartDay, today } from './access.ts';
 import { cancelSession, classSummary, completeSession, createProposal, orderedParts } from './plan.ts';
 import { loadRates, payOverview } from './pay.ts';
 import { loadConfig } from './records.ts';
-import { durationMinutes, monthOf } from '../../shared/dates.ts';
-import { resolveRate, sessionPay } from '../../shared/pay.ts';
+import { durationMinutes } from '../../shared/dates.ts';
+import { payMonthOf, resolveRate, sessionPay } from '../../shared/pay.ts';
 import { attendanceScore, computeStudent, type AttendanceMark } from '../../shared/grades.ts';
 
 // Three review-first workflows. Each one previews its effect, changes nothing until confirmed,
@@ -94,7 +94,8 @@ export function reconcileSessions(db: DB, u: User, decisions: Decision[], dryRun
     sessions.set(s.id, s);
   }
   const classIds = [...new Set([...sessions.values()].map((s) => s.class_id))];
-  const months = [...new Set([...sessions.values()].map((s) => monthOf(s.date)))];
+  const sd = payStartDay(db, u);
+  const months = [...new Set([...sessions.values()].map((s) => payMonthOf(s.date, sd)))];
   const before = snapshot(db, u, classIds, months);
 
   const run = () => {

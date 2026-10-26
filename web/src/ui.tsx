@@ -75,6 +75,16 @@ export function D({ date, year }: { date: string; year?: boolean }) {
   return <time dateTime={date}>{formatDate(date, lang, year)}</time>;
 }
 
+/** A pay month with the teaching dates it covers: "November 2026 · 16 Oct – 15 Nov". */
+export function PayMonth({ month, from, to }: { month: string; from: string; to: string }) {
+  const { lang } = useI18n();
+  const loc = lang === 'km' ? 'km-KH' : 'en-GB';
+  const SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const day = (d: string) => lang === 'km' ? new Date(`${d}T00:00:00Z`).toLocaleDateString(loc, { day: 'numeric', month: 'short', timeZone: 'UTC' }) : `${+d.slice(8, 10)} ${SHORT[+d.slice(5, 7) - 1]}`;
+  const name = new Date(`${month}-01T00:00:00Z`).toLocaleDateString(loc, { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  return <span><span style={{ fontFamily: 'var(--font-body)', fontWeight: 600 }}>{name}</span><div className="faint xs">{day(from)} – {day(to)}</div></span>;
+}
+
 export function Empty({ title, children, action }: { title: string; children?: ReactNode; action?: ReactNode }) {
   return (
     <div className="empty">

@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useApi } from '../api.ts';
 import { useI18n } from '../i18n.tsx';
-import { D, Empty, ErrorNote, Icon, Kind, Loading, MaterialStatus, money, plural, ProgressPill, SessionStatus } from '../ui.tsx';
+import { D, Empty, ErrorNote, Icon, Kind, Loading, MaterialStatus, money, PayMonth, plural, ProgressPill, SessionStatus } from '../ui.tsx';
 import { formatDate } from '../../../shared/dates.ts';
 
 const partLabel = (p: any) => (p ? `${p.code} ${p.title ?? ''}` : null);
@@ -111,7 +111,8 @@ export function Dashboard() {
           </section>
 
           <section className="panel">
-            <div className="panel-head"><h2>This month</h2><Link className="small" to="/pay">Pay</Link></div>
+            <div className="panel-head"><h2>This pay month</h2><Link className="small" to="/pay">Pay</Link></div>
+            {m && <div className="panel-body" style={{ paddingBottom: 0 }}><PayMonth month={m.month} from={m.from} to={m.to} /></div>}
             <dl className="kv panel-body">
               <dt>Sessions taught</dt><dd className="mono">{m?.taughtSessions ?? 0} <span className="faint">· {m?.plannedSessions ?? 0} still planned</span></dd>
               <dt>Hours</dt><dd className="mono">{((m?.taughtMinutes ?? 0) / 60).toFixed(1)}</dd>

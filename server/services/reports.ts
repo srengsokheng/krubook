@@ -1,10 +1,11 @@
 import type { DB } from '../db.ts';
 import type { User } from '../auth.ts';
-import { classScope, getSetting, today } from './access.ts';
+import { classScope, getSetting, payStartDay, today } from './access.ts';
 import { classSummary, orderedParts } from './plan.ts';
 import { gradebook } from './records.ts';
-import { addDays, DEFAULT_TZ, durationMinutes, formatDate, monthOf, nowTimeIn, todayIn, weekday } from '../../shared/dates.ts';
+import { addDays, DEFAULT_TZ, durationMinutes, formatDate, nowTimeIn, todayIn, weekday } from '../../shared/dates.ts';
 import { payOverview } from './pay.ts';
+import { payMonthOf } from '../../shared/pay.ts';
 
 // ---------------------------------------------------------------------------------------------
 // Dashboard
@@ -80,8 +81,9 @@ export function dashboard(db: DB, u: User) {
 
   const atRisk = classes.filter((c) => c.status === 'active').flatMap((c) => atRiskFor(db, u, c));
 
-  const pay = payOverview(db, u, now.slice(0, 4));
-  const month = pay.months.find((m) => m.month === monthOf(now)) ?? null;
+  const payMonth = payMonthOf(now, payStartDay(db, u));
+  const pay = payOverview(db, u, payMonth.slice(0, 4));
+  const month = pay.months.find((m) => m.month === payMonth) ?? null;
   const proposals = db.all(`SELECT p.id, p.class_id, p.reason, c.code FROM schedule_proposals p JOIN classes c ON c.id = p.class_id WHERE p.status = 'pending' AND p.class_id IN (${inList})`);
 
   return {

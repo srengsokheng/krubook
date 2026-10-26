@@ -56,7 +56,7 @@ function Sessions() {
             </div>
           </div>
           <div className="table-wrap">
-            <table className="table stack">
+            <table className="table mobile-cards">
               <thead><tr><th>Date</th><th>Type</th><th>Planned</th><th className="num">Pay if taught</th><th>Decision</th><th>Note</th></tr></thead>
               <tbody>{rows.map((s) => (
                 <tr key={s.sessionId}>
@@ -188,7 +188,7 @@ function StudentIds() {
         </div>
       </div>
       <div className="panel table-wrap">
-        <table className="table stack">
+        <table className="table mobile-cards">
           <thead><tr><th>Row</th><th>Official ID</th><th>In the file</th><th>Status</th><th>Assign to</th></tr></thead>
           <tbody>{shown.map((m: any) => (
             <tr key={m.row}>

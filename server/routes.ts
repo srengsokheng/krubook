@@ -2,7 +2,7 @@ import express, { type Request, type Response, type Router } from 'express';
 import { readFileSync } from 'node:fs';
 import { AppError, translateDbError, type DB, type Row } from './db.ts';
 import { addAccount, checkLoginRate, endSession, requireUser, startSession, verifyPassword, type User } from './auth.ts';
-import { classScope, getSetting, ownClass, ownCourse, ownEnrollment, ownLesson, ownPart, ownSession, ownStudent, ownTerm, setSetting, today } from './services/access.ts';
+import { classScope, getSetting, payStartDay, ownClass, ownCourse, ownEnrollment, ownLesson, ownPart, ownSession, ownStudent, ownTerm, setSetting, today } from './services/access.ts';
 import * as plan from './services/plan.ts';
 import * as records from './services/records.ts';
 import * as roster from './services/roster.ts';
@@ -16,6 +16,7 @@ import { addDays, diffDays, isISODate, isTime, rangesOverlap, startOfWeek } from
 import { findOverlaps, standardTemplate, type SessionRule } from '../shared/schedule.ts';
 import { cambodianHolidays } from '../shared/holidays.ts';
 import { DEFAULT_TZ } from '../shared/dates.ts';
+import { payPeriod } from '../shared/pay.ts';
 
 export interface DBHolder {
   db: DB;
@@ -138,6 +139,7 @@ export function buildRouter(holder: DBHolder): Router {
     telegramChat: getSetting(db, u.id, 'notify.telegramChat', ''),
     hasTelegramToken: !!getSetting(db, u.id, 'notify.telegramToken', ''),
     statusLabels: JSON.parse(getSetting(db, u.id, 'statusLabels', '{}')),
+    payPeriodStart: payStartDay(db, u),
     today: today(db, u),
   }));
   put('/settings', (req, db, u) => {
@@ -152,6 +154,14 @@ export function buildRouter(holder: DBHolder): Router {
     if (b.telegramChat !== undefined) setSetting(db, u.id, 'notify.telegramChat', String(b.telegramChat).trim());
     if (b.telegramToken) setSetting(db, u.id, 'notify.telegramToken', String(b.telegramToken).trim());
     if (b.statusLabels !== undefined) setSetting(db, u.id, 'statusLabels', JSON.stringify(b.statusLabels));
+    if (b.payPeriodStart !== undefined) {
+      const n = Number(b.payPeriodStart);
+      if (!Number.isInteger(n) || n < 1 || n > 28) throw new AppError(422, 'The pay period must start on a day from 1 to 28.');
+      if (db.get("SELECT 1 FROM pay_statements WHERE owner_id = ? LIMIT 1", u.id) && n !== payStartDay(db, u)) {
+        throw new AppError(409, 'Pay months are already approved with the current pay period. Undo those approvals before changing it.');
+      }
+      setSetting(db, u.id, 'pay.periodStart', String(n));
+    }
     return { ok: true };
   });
   get('/notifications/preview', (_req, db, u) => ({
@@ -593,7 +603,9 @@ export function buildRouter(holder: DBHolder): Router {
     const year = String(req.query.year ?? today(db, u).slice(0, 4));
     if (month && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new AppError(400, 'month must be YYYY-MM.');
     if (!/^\d{4}$/.test(year)) throw new AppError(400, 'year must be four digits.');
-    const lines = month ? pay.payLines(db, u, `${month}-01`, `${month}-31`) : pay.payLines(db, u, `${year}-01-01`, `${year}-12-31`);
+    const sd = payStartDay(db, u);
+    const period = month ? payPeriod(month, sd) : { from: payPeriod(`${year}-01`, sd).from, to: payPeriod(`${year}-12`, sd).to };
+    const lines = pay.payLines(db, u, period.from, period.to);
     return pageArray(lines.reverse(), p);
   });
   post('/pay/statements', (req, db, u) => pay.approveMonth(db, u, String(req.body.month ?? ''), req.body.note));

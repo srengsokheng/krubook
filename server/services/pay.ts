@@ -1,10 +1,13 @@
 import { AppError, type DB, type Row } from '../db.ts';
 import type { User } from '../auth.ts';
-import { ownClass, ownCourse, today } from './access.ts';
-import { durationMinutes, isISODate, monthOf } from '../../shared/dates.ts';
-import { resolveRate, sessionPay, type Rate } from '../../shared/pay.ts';
+import { ownClass, ownCourse, payStartDay, today } from './access.ts';
+import { durationMinutes, isISODate } from '../../shared/dates.ts';
+import { payMonthOf, payPeriod, resolveRate, sessionPay, type Rate } from '../../shared/pay.ts';
 
 // Pay is personal: it always covers the signed-in teacher's own classes, even for admins.
+//
+// Pay months follow the teacher's pay period (default 16th of last month to 15th of this month; see
+// payPeriod in shared/pay.ts), not calendar months.
 //
 // Lifecycle of a month:
 //   estimated  taught sessions (with a teaching record) priced with the current rates
@@ -66,6 +69,8 @@ export function payLines(db: DB, u: User, from: string, to: string): PayLine[] {
 
 export interface MonthSummary {
   month: string;
+  from: string;           // first teaching date counted in this pay month
+  to: string;             // last teaching date counted
   taughtSessions: number;
   taughtMinutes: number;
   makeupSessions: number;
@@ -81,16 +86,17 @@ export interface MonthSummary {
 export function payOverview(db: DB, u: User, year: string) {
   if (!/^\d{4}$/.test(year)) throw new AppError(422, 'Year must be four digits.');
   const now = today(db, u);
-  const from = `${year}-01-01`, to = `${year}-12-31`;
+  const sd = payStartDay(db, u);
+  const from = payPeriod(`${year}-01`, sd).from, to = payPeriod(`${year}-12`, sd).to;
   const lines = payLines(db, u, from, to);
   const rates = loadRates(db, u.id);
   const months = new Map<string, MonthSummary>();
   const get = (m: string) => {
-    if (!months.has(m)) months.set(m, { month: m, taughtSessions: 0, taughtMinutes: 0, makeupSessions: 0, unratedSessions: 0, estimated: 0, approved: 0, paid: 0, total: 0, expected: 0, plannedSessions: 0 });
+    if (!months.has(m)) months.set(m, { month: m, ...payPeriod(m, sd), taughtSessions: 0, taughtMinutes: 0, makeupSessions: 0, unratedSessions: 0, estimated: 0, approved: 0, paid: 0, total: 0, expected: 0, plannedSessions: 0 });
     return months.get(m)!;
   };
   for (const l of lines) {
-    const m = get(monthOf(l.date));
+    const m = get(payMonthOf(l.date, sd));
     m.taughtSessions++;
     m.taughtMinutes += l.minutes;
     if (l.isMakeup) m.makeupSessions++;
@@ -113,7 +119,7 @@ export function payOverview(db: DB, u: User, year: string) {
     u.id, now, from, to,
   );
   for (const p of planned) {
-    const m = get(monthOf(p.date));
+    const m = get(payMonthOf(p.date, sd));
     m.plannedSessions++;
     m.expected += sessionPay(resolveRate(rates, { classId: p.class_id, courseId: p.course_id, date: p.date }), durationMinutes(p.start_time, p.end_time));
   }
@@ -125,6 +131,8 @@ export function payOverview(db: DB, u: User, year: string) {
   const sum = (k: keyof MonthSummary) => r2(list.reduce((s, m) => s + (m[k] as number), 0));
   return {
     year,
+    payStartDay: sd,
+    currentMonth: payMonthOf(now, sd),
     currency: rates[0]?.currency ?? 'USD',
     months: list,
     totals: { taughtSessions: sum('taughtSessions'), taughtMinutes: sum('taughtMinutes'), estimated: sum('estimated'), approved: sum('approved'), paid: sum('paid'), total: sum('total'), expected: sum('expected') },
@@ -144,9 +152,11 @@ const statementOut = (s: Row) => ({ id: s.id, month: s.month, status: s.status, 
 /** Freezes every taught, not-yet-approved session (and loose adjustment) of a month. */
 export function approveMonth(db: DB, u: User, month: string, note?: string) {
   if (!MONTH_RE.test(month)) throw new AppError(422, 'Choose a month as YYYY-MM.');
-  if (month > monthOf(today(db, u))) throw new AppError(422, 'A month can only be approved once it has started.');
+  const sd = payStartDay(db, u);
+  if (month > payMonthOf(today(db, u), sd)) throw new AppError(422, 'A month can only be approved once its pay period has started.');
+  const { from, to } = payPeriod(month, sd);
   return db.tx(() => {
-    const lines = payLines(db, u, `${month}-01`, `${month}-31`).filter((l) => !l.statementId);
+    const lines = payLines(db, u, from, to).filter((l) => !l.statementId);
     const adjustments = db.all('SELECT * FROM pay_adjustments WHERE owner_id = ? AND month = ? AND statement_id IS NULL', u.id, month);
     if (!lines.length && !adjustments.length) throw new AppError(409, 'Nothing new to approve for this month: every taught session is already on a statement.');
     const unrated = lines.filter((l) => l.rate == null);

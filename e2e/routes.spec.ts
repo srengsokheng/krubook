@@ -41,6 +41,11 @@ for (const route of ROUTES) {
       return { page: document.documentElement.scrollWidth - w, offenders: wide.slice(0, 5).map((el) => `${el.tagName.toLowerCase()}.${el.className}`) };
     });
     expect(overflow.page, `horizontal overflow: ${overflow.offenders.join(', ')}`).toBeLessThanOrEqual(1);
+    // Above phone width, data tables must lay out as tables (a stray layout class once turned them into flex columns).
+    if ((page.viewportSize()?.width ?? 0) > 640) {
+      const broken = await page.locator('table.table').evaluateAll((ts) => ts.filter((t) => getComputedStyle(t).display !== 'table').length);
+      expect(broken, 'tables not laid out as tables').toBe(0);
+    }
     await page.screenshot({ path: `e2e-results/screens/${info.project.name}/${route.replace(/[\/#]+/g, '_') || '_'}.png`, fullPage: true });
     expect(problems).toEqual([]);
   });

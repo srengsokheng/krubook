@@ -1,6 +1,7 @@
 import { AppError, type DB, type Row } from '../db.ts';
 import type { User } from '../auth.ts';
 import { DEFAULT_TZ, todayIn } from '../../shared/dates.ts';
+import { DEFAULT_PAY_START_DAY } from '../../shared/pay.ts';
 
 // Every lookup is scoped to the signed-in teacher. Admins can see everything. A record that exists
 // but belongs to someone else is reported as "not found" so IDs cannot be probed.
@@ -62,6 +63,12 @@ export function getSetting(db: DB, ownerId: number, key: string, fallback: strin
 
 export function setSetting(db: DB, ownerId: number, key: string, value: string) {
   db.run('INSERT INTO settings (owner_id, key, value) VALUES (?,?,?) ON CONFLICT(owner_id, key) DO UPDATE SET value = excluded.value', ownerId, key, value);
+}
+
+/** Day of the month a pay period starts on (16 = 16th of last month to 15th of this month; 1 = calendar month). */
+export function payStartDay(db: DB, u: User): number {
+  const n = Number(getSetting(db, u.id, 'pay.periodStart', String(DEFAULT_PAY_START_DAY)));
+  return Number.isInteger(n) && n >= 1 && n <= 28 ? n : DEFAULT_PAY_START_DAY;
 }
 
 /** "Today" for the teacher, in their configured time zone. Overridable for tests and demos. */

@@ -133,15 +133,15 @@ p { margin: 0; }
 .sticky-actions { position: sticky; bottom: 0; z-index: 5; }
 @media (max-width: 860px) { .sticky-actions { bottom: calc(60px + env(safe-area-inset-bottom, 0px)); } }
 
-/* On phones, a .table.stack shows each row as a labelled card instead of a sideways-scrolling grid. */
+/* On phones, a .table.mobile-cards shows each row as a labelled card instead of a sideways-scrolling grid. */
 @media (max-width: 640px) {
-  .table.stack thead { display: none; }
-  .table.stack, .table.stack tbody, .table.stack tr, .table.stack td { display: block; width: 100%; }
-  .table.stack tr { padding: 10px 14px; border-bottom: 1px solid var(--rule); }
-  .table.stack td { display: grid; grid-template-columns: 7.5rem minmax(0, 1fr); gap: 8px; align-items: center; padding: 4px 0; border: 0; min-width: 0 !important; text-align: left; white-space: normal !important; }
-  .table.stack td::before { content: attr(data-label); font-family: var(--font-body); font-size: 0.75rem; letter-spacing: normal; color: var(--ink-3); }
-  .table.stack td > * { justify-self: start; }
-  .table.stack td > :is(select, input) { justify-self: stretch; }
+  .table.mobile-cards thead { display: none; }
+  .table.mobile-cards, .table.mobile-cards tbody, .table.mobile-cards tr, .table.mobile-cards td { display: block; width: 100%; }
+  .table.mobile-cards tr { padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+  .table.mobile-cards td { display: grid; grid-template-columns: 7.5rem minmax(0, 1fr); gap: 8px; align-items: center; padding: 4px 0; border: 0; min-width: 0 !important; text-align: left; white-space: normal !important; }
+  .table.mobile-cards td::before { content: attr(data-label); font-family: var(--font-body); font-size: 0.75rem; letter-spacing: normal; color: var(--ink-3); }
+  .table.mobile-cards td > * { justify-self: start; }
+  .table.mobile-cards td > :is(select, input) { justify-self: stretch; }
 }
 
 /* ---------- Surfaces ---------- */
