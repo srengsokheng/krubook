@@ -40,7 +40,9 @@ export function classRule(cls: Row, course: Row): SessionRule {
 }
 
 export function holidaysFor(db: DB, ownerId: number, termId: number) {
-  return db.all<{ date: string; name: string }>('SELECT date, name FROM holidays WHERE owner_id = ? AND (term_id IS NULL OR term_id = ?) ORDER BY date', ownerId, termId);
+  const rows = db.all<{ date: string; end_date: string | null; name: string }>('SELECT date, end_date, name FROM holidays WHERE owner_id = ? AND (term_id IS NULL OR term_id = ?) ORDER BY date', ownerId, termId);
+  // A range blocks every day in it.
+  return rows.flatMap((h) => { const days = []; for (let d = h.date; d <= (h.end_date ?? h.date); d = addDays(d, 1)) days.push({ date: d, name: h.name }); return days; });
 }
 
 function context(db: DB, cls: Row) {

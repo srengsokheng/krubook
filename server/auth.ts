@@ -1,7 +1,7 @@
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
 import { AppError, type DB } from './db.ts';
-import { cambodianHolidays, SOURCE_2026 } from '../shared/holidays.ts';
+import { holidayRanges, SOURCE_2026 } from '../shared/holidays.ts';
 
 export interface User {
   id: number;
@@ -53,7 +53,7 @@ export function addAccount(db: DB, email: string, name: string, password: string
     return unclaimed.id;
   }
   const id = createUser(db, email, name, password, 'admin');
-  for (const h of cambodianHolidays()) db.run("INSERT OR IGNORE INTO holidays (owner_id, date, name, name_km, source, approx, verified_note) VALUES (?,?,?,?,'national',?,?)", id, h.date, h.name, h.nameKm, h.approx ? 1 : 0, h.date.startsWith('2026') ? SOURCE_2026 : null);
+  for (const h of holidayRanges()) db.run("INSERT OR IGNORE INTO holidays (owner_id, date, end_date, name, name_km, source, approx, verified_note) VALUES (?,?,?,?,?,'national',?,?)", id, h.date, h.endDate, h.name, h.nameKm, h.approx ? 1 : 0, h.date.startsWith('2026') ? SOURCE_2026 : null);
   return id;
 }
 

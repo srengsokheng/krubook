@@ -97,7 +97,7 @@ export function TermDetail() {
           <div className="panel-head"><h2>Term-only non-teaching days</h2></div>
           <div className="panel-body stack">
             <p className="faint xs">National holidays apply to every term and are edited in Settings. Add school events or breaks that only affect this term here.</p>
-            {term.holidays.length ? <ul className="ledger panel">{term.holidays.map((h: any) => <li key={h.id}><span className="when"><D date={h.date} /></span><span className="grow small">{h.name}</span><button className="btn sm ghost" aria-label="Remove" onClick={() => run(() => api(`/holidays/${h.id}`, { method: 'DELETE' })).then(reload)}><Icon name="trash" /></button></li>)}</ul> : null}
+            {term.holidays.length ? <ul className="ledger panel">{term.holidays.map((h: any) => <li key={h.id}><span className="when"><D date={h.date} />{h.end_date && <> – <D date={h.end_date} /></>}</span><span className="grow small">{h.name}</span><button className="btn sm ghost" aria-label="Remove" onClick={() => run(() => api(`/holidays/${h.id}`, { method: 'DELETE' })).then(reload)}><Icon name="trash" /></button></li>)}</ul> : null}
             <div className="form-grid">
               <Field label="From"><input id="h-from" type="date" value={hol.date} onChange={(e) => setHol({ ...hol, date: e.target.value })} /></Field>
               <Field label="To (optional)"><input id="h-to" type="date" value={hol.endDate} onChange={(e) => setHol({ ...hol, endDate: e.target.value })} /></Field>

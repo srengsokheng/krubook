@@ -138,7 +138,7 @@ p { margin: 0; }
   .table.mobile-cards thead { display: none; }
   .table.mobile-cards, .table.mobile-cards tbody, .table.mobile-cards tr, .table.mobile-cards td { display: block; width: 100%; }
   .table.mobile-cards tr { padding: 10px 14px; border-bottom: 1px solid var(--rule); }
-  .table.mobile-cards td { display: grid; grid-template-columns: 7.5rem minmax(0, 1fr); gap: 8px; align-items: center; padding: 4px 0; border: 0; min-width: 0 !important; text-align: left; white-space: normal !important; }
+  .table.mobile-cards td { display: grid; grid-template-columns: 7.5rem minmax(0, 1fr); gap: 8px; align-items: center; padding: 4px 0; border: 0; width: 100% !important; min-width: 0 !important; text-align: left; white-space: normal !important; }
   .table.mobile-cards td::before { content: attr(data-label); font-family: var(--font-body); font-size: 0.75rem; letter-spacing: normal; color: var(--ink-3); }
   .table.mobile-cards td > * { justify-self: start; }
   .table.mobile-cards td > :is(select, input) { justify-self: stretch; }

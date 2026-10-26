@@ -3,6 +3,7 @@ import { api, download, useApi } from '../api.ts';
 import { useI18n, type Lang } from '../i18n.tsx';
 import { Confirm, D, Empty, ErrorNote, Field, Icon, Loading, Notice, Pager, Pill, TabBar, useAction, useTab, useToast } from '../ui.tsx';
 import { HolidayCheck } from './Terms.tsx';
+import { diffDays } from '../../../shared/dates.ts';
 import type { Me } from '../App.tsx';
 
 const STATUS_KEYS = ['planned', 'completed', 'cancelled', 'skipped', 'moved', 'ahead', 'on_schedule', 'behind', 'not_started'];
@@ -21,6 +22,7 @@ export function Settings({ me }: { me: Me }) {
   const [f, setF] = useState<any>(null);
   const [labels, setLabels] = useState<Record<string, string>>({});
   const [hol, setHol] = useState({ date: '', endDate: '', name: '', nameKm: '' });
+  const [delHol, setDelHol] = useState<any>(null);
   const [restore, setRestore] = useState<{ file: any; counts: Record<string, number> } | null>(null);
   const [confirmRestore, setConfirmRestore] = useState(false);
   const [year, setYear] = useState(String(new Date().getFullYear()));
@@ -77,19 +79,23 @@ export function Settings({ me }: { me: Me }) {
         <section className="panel">
           <div className="panel-head"><h2>{t('Holidays')}</h2><span className="faint small">{holidays?.length ?? 0}</span></div>
           <div className="panel-body stack">
-            <Notice tone="info">Lunar holidays move every year. Entries marked “estimate” need checking against the government’s official list; edit the date if needed. “Verified” dates match the published sub-decree (hover for the source).</Notice>
+            {delHol && <Confirm title={`Remove “${delHol.name}”?`} body={`${delHol.end_date ? `All ${diffDays(delHol.end_date, delHol.date) + 1} days (${delHol.date} to ${delHol.end_date})` : delHol.date} will count as normal teaching days again. Use “Check classes against holidays” afterwards to update class plans.`} confirmLabel="Remove" danger onConfirm={() => run(() => api(`/holidays/${delHol.id}`, { method: 'DELETE' }), 'Holiday removed').then(reloadHol)} onClose={() => setDelHol(null)} />}
+            <Notice tone="info">A holiday can be one day or a range (leave “To” empty for one day). Lunar holidays move every year. Entries marked “estimate” need checking against the government’s official list; edit the date if needed. “Verified” dates match the published sub-decree (hover for the source).</Notice>
             <div className="row">
               <select aria-label="Year" value={year} onChange={(e) => setYear(e.target.value)} style={{ width: 100 }}>{[...new Set((holidays ?? []).map((h) => h.date.slice(0, 4)))].map((y) => <option key={y}>{y}</option>)}</select>
               <HolidayCheck />
             </div>
             <div className="table-wrap panel" style={{ maxHeight: 360, overflowY: 'auto' }}>
               <table className="table mobile-cards">
+                <thead><tr><th>From</th><th>To</th><th className="num">Days</th><th>Holiday</th><th>Status</th><th /></tr></thead>
                 <tbody>{(holidays ?? []).filter((h) => h.date.startsWith(year)).map((h) => (
                   <tr key={h.id}>
-                    <td data-label="Date" style={{ width: 150 }}><input type="date" aria-label={`Date of ${h.name}`} defaultValue={h.date} onBlur={(e) => e.target.value !== h.date && run(() => api(`/holidays/${h.id}`, { method: 'PUT', body: { date: e.target.value } }), 'Holiday date updated').then(reloadHol)} /></td>
+                    <td data-label="From" style={{ width: 150 }}><input type="date" aria-label={`Start of ${h.name}`} defaultValue={h.date} onBlur={(e) => e.target.value && e.target.value !== h.date && run(() => api(`/holidays/${h.id}`, { method: 'PUT', body: { date: e.target.value } }), 'Holiday updated').then(reloadHol)} /></td>
+                    <td data-label="To" style={{ width: 150 }}><input type="date" aria-label={`End of ${h.name}`} defaultValue={h.end_date ?? ''} min={h.date} onBlur={(e) => e.target.value !== (h.end_date ?? '') && run(() => api(`/holidays/${h.id}`, { method: 'PUT', body: { endDate: e.target.value || null } }), e.target.value ? 'Holiday updated' : 'Now a single day').then(reloadHol)} /></td>
+                    <td data-label="Days" className="num mono small">{h.end_date ? diffDays(h.end_date, h.date) + 1 : 1}</td>
                     <td data-label="Holiday" className="small"><span>{h.name}{h.name_km && <div className="faint xs">{h.name_km}</div>}{h.term_name && <div className="faint xs">only {h.term_name}</div>}</span></td>
                     <td data-label="Status">{h.approx ? <Pill tone="warn" title="Estimated date; confirm against the official list">estimate</Pill> : h.verified_note ? <Pill tone="ok" title={h.verified_note}>verified</Pill> : h.source === 'national' ? <Pill>national</Pill> : <Pill tone="accent">yours</Pill>}</td>
-                    <td data-label=""><button className="btn sm ghost" aria-label={`Remove ${h.name}`} onClick={() => run(() => api(`/holidays/${h.id}`, { method: 'DELETE' }), 'Holiday removed').then(reloadHol)}><Icon name="trash" /></button></td>
+                    <td data-label=""><button className="btn sm ghost" aria-label={`Remove ${h.name}`} onClick={() => setDelHol(h)}><Icon name="trash" /></button></td>
                   </tr>
                 ))}</tbody>
               </table>

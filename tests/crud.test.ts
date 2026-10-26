@@ -88,14 +88,21 @@ describe('terms, holidays and classes', () => {
     expect(holder.db.get('SELECT COUNT(*) AS n FROM enrollments e JOIN classes c ON c.id = e.class_id WHERE c.term_id = ?', clone.id)!.n).toBe(0);
     expect((await call('DELETE', `/terms/${clone.id}`)).status).toBe(409);
   });
-  it('holidays: date range, edit, delete', async () => {
+  it('holidays: a range is one entry; edit, overlap, delete', async () => {
     const r = ok(await call('POST', '/holidays', { date: '2027-03-01', endDate: '2027-03-03', name: 'Break', termId: term }));
-    expect(r.created).toBe(3);
-    const h = holder.db.get("SELECT id FROM holidays WHERE name = 'Break' ORDER BY date LIMIT 1")!.id;
-    ok(await call('PUT', `/holidays/${h}`, { name: 'Spring break' }));
-    ok(await call('DELETE', `/holidays/${h}`));
-    expect(holder.db.get("SELECT COUNT(*) AS n FROM holidays WHERE name IN ('Break','Spring break')")!.n).toBe(2);
+    expect(r.days).toBe(3);
+    expect(holder.db.get("SELECT COUNT(*) AS n FROM holidays WHERE name = 'Break'")!.n).toBe(1);
+    expect(holder.db.get('SELECT date, end_date FROM holidays WHERE id = ?', r.id)).toEqual({ date: '2027-03-01', end_date: '2027-03-03' });
+    // Overlapping dates in the same scope are refused; the existing entry is edited instead.
+    expect((await call('POST', '/holidays', { date: '2027-03-03', name: 'Clash', termId: term })).status).toBe(409);
+    ok(await call('PUT', `/holidays/${r.id}`, { name: 'Spring break', endDate: '2027-03-07' }));
+    expect(holder.db.get('SELECT name, end_date FROM holidays WHERE id = ?', r.id)).toEqual({ name: 'Spring break', end_date: '2027-03-07' });
+    ok(await call('PUT', `/holidays/${r.id}`, { endDate: null }));
+    expect(holder.db.get('SELECT end_date FROM holidays WHERE id = ?', r.id)!.end_date).toBeNull();
+    ok(await call('DELETE', `/holidays/${r.id}`));
+    expect(holder.db.get("SELECT COUNT(*) AS n FROM holidays WHERE name IN ('Break','Spring break')")!.n).toBe(0);
     expect((await call('POST', '/holidays', { date: '2027-03-01', endDate: '2027-02-01', name: 'x' })).status).toBe(422);
+    expect((await call('POST', '/holidays', { date: '2027-03-01', endDate: '2027-06-01', name: 'x' })).status).toBe(422);
   });
   it('classes: create, meetings, update, plan, delete term when empty', async () => {
     const course = holder.db.get('SELECT id FROM courses LIMIT 1')!.id;

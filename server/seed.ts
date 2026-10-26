@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DB } from './db.ts';
 import { createUser, type User } from './auth.ts';
-import { cambodianHolidays, SOURCE_2026 } from '../shared/holidays.ts';
+import { holidayRanges, SOURCE_2026 } from '../shared/holidays.ts';
 import { standardTemplate } from '../shared/schedule.ts';
 import { generateForClass, completeSession, orderedParts, applyProposal, createProposal } from './services/plan.ts';
 import { applySync, ensureConfig, saveConfig, loadConfig } from './services/records.ts';
@@ -48,7 +48,7 @@ export function seedDemo(db: DB) {
   const uid = createUser(db, DEMO_LOGIN.email, 'Demo Teacher', DEMO_LOGIN.password, 'admin');
   const u: User = { id: uid, email: DEMO_LOGIN.email, name: 'Demo Teacher', role: 'admin' };
   db.run("INSERT INTO settings (owner_id, key, value) VALUES (?, 'timezone', 'Asia/Phnom_Penh')", uid);
-  for (const h of cambodianHolidays()) db.run("INSERT INTO holidays (owner_id, date, name, name_km, source, approx, verified_note) VALUES (?,?,?,?,'national',?,?)", uid, h.date, h.name, h.nameKm, h.approx ? 1 : 0, h.date.startsWith('2026') ? SOURCE_2026 : null);
+  for (const h of holidayRanges()) db.run("INSERT INTO holidays (owner_id, date, end_date, name, name_km, source, approx, verified_note) VALUES (?,?,?,?,?,'national',?,?)", uid, h.date, h.endDate, h.name, h.nameKm, h.approx ? 1 : 0, h.date.startsWith('2026') ? SOURCE_2026 : null);
 
   const courses: Record<string, number> = {};
   const meta: Record<string, [string, string, string]> = {

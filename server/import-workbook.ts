@@ -14,7 +14,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { DB } from './db.ts';
 import type { User } from './auth.ts';
-import { cambodianHolidays, SOURCE_2026 } from '../shared/holidays.ts';
+import { holidayRanges, SOURCE_2026 } from '../shared/holidays.ts';
 import { addDays, isISODate } from '../shared/dates.ts';
 import { completeSession, generateForClass, orderedParts } from './services/plan.ts';
 import { applySync, ensureConfig, saveConfig, setConfigStatus } from './services/records.ts';
@@ -93,7 +93,7 @@ async function main() {
   const ownerId = db.run("INSERT INTO users (email, name, password_hash, role) VALUES ('owner@krubook.local', 'Teacher', '!', 'admin')").id;
   const u: User = { id: ownerId, email: 'owner@krubook.local', name: 'Teacher', role: 'admin' };
   db.run("INSERT INTO settings (owner_id, key, value) VALUES (?, 'timezone', 'Asia/Phnom_Penh')", ownerId);
-  for (const h of cambodianHolidays()) db.run("INSERT INTO holidays (owner_id, date, name, name_km, source, approx, verified_note) VALUES (?,?,?,?,'national',?,?)", ownerId, h.date, h.name, h.nameKm, h.approx ? 1 : 0, h.date.startsWith('2026') ? SOURCE_2026 : null);
+  for (const h of holidayRanges()) db.run("INSERT INTO holidays (owner_id, date, end_date, name, name_km, source, approx, verified_note) VALUES (?,?,?,?,?,'national',?,?)", ownerId, h.date, h.endDate, h.name, h.nameKm, h.approx ? 1 : 0, h.date.startsWith('2026') ? SOURCE_2026 : null);
 
   // ---- Weekly schedule → meetings ---------------------------------------------------------
   const ws = wb.getWorksheet('Weekly Schedule')!;

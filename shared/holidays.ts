@@ -48,3 +48,15 @@ export function cambodianHolidays(years: number[] = [2026, 2027]): HolidaySeed[]
   const seen = new Set<string>();
   return out.sort((a, b) => a.date.localeCompare(b.date)).filter((h) => (seen.has(h.date) ? false : (seen.add(h.date), true)));
 }
+
+/** Consecutive days with the same name as one entry: Pchum Ben 10–12 Oct is one holiday, not three. */
+export function holidayRanges(list: HolidaySeed[] = cambodianHolidays()): Array<HolidaySeed & { endDate: string | null }> {
+  const out: Array<HolidaySeed & { endDate: string | null }> = [];
+  for (const h of [...list].sort((a, b) => a.date.localeCompare(b.date))) {
+    const last = out[out.length - 1];
+    const next = last && new Date(Date.parse(`${last.endDate ?? last.date}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+    if (last && last.name === h.name && next === h.date) { last.endDate = h.date; last.approx = last.approx || h.approx; }
+    else out.push({ ...h, endDate: null });
+  }
+  return out;
+}

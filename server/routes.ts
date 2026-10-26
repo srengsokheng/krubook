@@ -341,21 +341,37 @@ export function buildRouter(holder: DBHolder): Router {
       return { id: nid, classes: classes.length };
     });
   });
+  // A holiday is a single day (no end date) or a range of up to 60 days, stored as one entry.
+  const holidayRange = (start: unknown, end: unknown) => {
+    const from = date(start, 'Date')!, to = date(end || null, 'End date', false) ?? from;
+    if (to < from || diffDays(to, from) > 60) throw new AppError(422, 'Choose an end date on or after the start date, at most 60 days later.');
+    return { from, to };
+  };
+  const noOverlap = (u: User, termId: number | null, from: string, to: string, exceptId = 0) => {
+    const clash = holder.db.get<{ name: string; date: string }>('SELECT name, date FROM holidays WHERE owner_id = ? AND COALESCE(term_id, 0) = COALESCE(?, 0) AND id <> ? AND date <= ? AND COALESCE(end_date, date) >= ?', u.id, termId, exceptId, to, from);
+    if (clash) throw new AppError(409, `These dates overlap “${clash.name}” (${clash.date}). Edit that holiday instead.`);
+  };
   get('/holidays', (req, db, u) => db.all('SELECT h.*, t.name AS term_name FROM holidays h LEFT JOIN terms t ON t.id = h.term_id WHERE h.owner_id = ? ORDER BY h.date', u.id));
   post('/holidays', (req, db, u) => {
     const b = req.body;
     if (b.termId) ownTerm(db, u, num(b.termId, 'term'));
-    const from = date(b.date, 'Date')!, to = date(b.endDate, 'End date', false) ?? from;
-    if (to < from || diffDays(to, from) > 60) throw new AppError(422, 'Choose an end date on or after the start date, at most 60 days later.');
-    let n = 0;
-    db.tx(() => { for (let d = from; d <= to; d = addDays(d, 1)) { db.run('INSERT INTO holidays (owner_id, term_id, date, name, name_km, source) VALUES (?,?,?,?,?,?)', u.id, b.termId ?? null, d, str(b.name, 'Holiday name'), b.nameKm ?? null, 'user'); n++; } });
-    return { created: n };
+    const { from, to } = holidayRange(b.date, b.endDate);
+    const name = str(b.name, 'Holiday name');
+    noOverlap(u, b.termId ?? null, from, to);
+    const id = db.tx(() => {
+      const id = db.run('INSERT INTO holidays (owner_id, term_id, date, end_date, name, name_km, source) VALUES (?,?,?,?,?,?,?)', u.id, b.termId ?? null, from, to === from ? null : to, name, b.nameKm ?? null, 'user').id;
+      db.audit(u.id, 'holiday', id, 'create', undefined, { date: from, endDate: to, name });
+      return id;
+    });
+    return { id, days: diffDays(to, from) + 1 };
   });
   put('/holidays/:id', (req, db, u) => {
     const h = db.get('SELECT * FROM holidays WHERE id = ? AND owner_id = ?', num(req.params.id, 'holiday'), u.id);
     if (!h) throw new AppError(404, 'Holiday not found.');
+    const { from, to } = holidayRange(req.body.date ?? h.date, req.body.endDate === undefined ? h.end_date : req.body.endDate);
+    noOverlap(u, h.term_id, from, to, h.id);
     db.tx(() => {
-      db.run('UPDATE holidays SET date=?, name=?, name_km=?, approx=0, verified_note=? WHERE id=?', date(req.body.date ?? h.date, 'Date'), str(req.body.name ?? h.name, 'Name'), req.body.nameKm ?? h.name_km, req.body.verifiedNote === undefined ? (h.verified_note ?? 'Confirmed by the teacher') : optText(req.body.verifiedNote, 'Source', 200), h.id);
+      db.run('UPDATE holidays SET date=?, end_date=?, name=?, name_km=?, approx=0, verified_note=? WHERE id=?', from, to === from ? null : to, str(req.body.name ?? h.name, 'Name'), req.body.nameKm ?? h.name_km, req.body.verifiedNote === undefined ? (h.verified_note ?? 'Confirmed by the teacher') : optText(req.body.verifiedNote, 'Source', 200), h.id);
       db.audit(u.id, 'holiday', h.id, 'update', h, req.body);
     });
   });

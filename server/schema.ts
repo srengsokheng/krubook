@@ -501,4 +501,30 @@ CREATE INDEX score_archive_component ON score_archive(component_id, restored_at)
 UPDATE holidays SET approx = 0, verified_note = 'Sub-Decree No. 167 (18 Sep 2025)'
  WHERE source = 'national' AND date IN ('2026-01-01','2026-01-07','2026-03-08','2026-04-14','2026-04-15','2026-04-16','2026-05-01','2026-05-05','2026-05-14','2026-06-18','2026-09-24','2026-10-10','2026-10-11','2026-10-12','2026-10-15','2026-10-29','2026-11-09','2026-11-23','2026-11-24','2026-11-25','2026-12-29');
 `,
+  // 4: a holiday is one entry for a single day or a range (end_date), instead of one row per day.
+  `
+ALTER TABLE holidays ADD COLUMN end_date TEXT;
+
+-- Runs of consecutive days with the same name, scope and source become one entry.
+CREATE TEMP TABLE holiday_runs AS
+WITH x AS (
+  SELECT id, owner_id, COALESCE(term_id, 0) AS t, name, IFNULL(name_km, '') AS nk, source, date, approx,
+         julianday(date) - ROW_NUMBER() OVER (PARTITION BY owner_id, COALESCE(term_id, 0), name, IFNULL(name_km, ''), source ORDER BY date) AS grp
+    FROM holidays
+)
+SELECT MIN(id) AS keep_id, MIN(date) AS first, MAX(date) AS last, MAX(approx) AS approx, owner_id, t, name, nk, source
+  FROM x GROUP BY owner_id, t, name, nk, source, grp HAVING COUNT(*) > 1;
+
+DELETE FROM holidays WHERE id NOT IN (SELECT keep_id FROM holiday_runs) AND EXISTS (
+  SELECT 1 FROM holiday_runs r WHERE r.owner_id = holidays.owner_id AND r.t = COALESCE(holidays.term_id, 0) AND r.name = holidays.name
+     AND r.nk = IFNULL(holidays.name_km, '') AND r.source = holidays.source AND holidays.date BETWEEN r.first AND r.last);
+
+UPDATE holidays SET
+  date = (SELECT first FROM holiday_runs WHERE keep_id = holidays.id),
+  end_date = (SELECT last FROM holiday_runs WHERE keep_id = holidays.id),
+  approx = (SELECT approx FROM holiday_runs WHERE keep_id = holidays.id)
+ WHERE id IN (SELECT keep_id FROM holiday_runs);
+
+DROP TABLE holiday_runs;
+`,
 ];

@@ -48,15 +48,19 @@ test.describe('signed in', () => {
     await expect(page.getByText(/^Approved \$/)).toHaveCount(0);
   });
 
-  test('holidays: add one, see it listed, remove it', async ({ page }) => {
+  test('holidays: a 3-day range is one entry; remove asks first', async ({ page }) => {
     await page.goto('/settings#holidays');
-    await page.locator('#hh-from').fill('2026-12-24');
-    await page.locator('#hh-name').fill('E2E test day');
+    await page.locator('#hh-from').fill('2026-12-21');
+    await page.locator('#hh-to').fill('2026-12-23');
+    await page.locator('#hh-name').fill('E2E test break');
     await page.getByRole('button', { name: 'Add holiday' }).click();
-    await expect(page.getByText('E2E test day')).toBeVisible();
-    expect(((await (await page.request.get('/api/holidays')).json()) as any[]).some((h) => h.name === 'E2E test day')).toBe(true);
-    await page.getByRole('button', { name: 'Remove E2E test day' }).click();
-    await expect(page.getByText('E2E test day')).toHaveCount(0);
+    await expect(page.getByText('E2E test break')).toHaveCount(1);
+    const mine = ((await (await page.request.get('/api/holidays')).json()) as any[]).filter((h) => h.name === 'E2E test break');
+    expect(mine).toEqual([expect.objectContaining({ date: '2026-12-21', end_date: '2026-12-23' })]);
+    await page.getByRole('button', { name: 'Remove E2E test break' }).click();
+    await expect(page.getByRole('dialog')).toContainText('All 3 days');
+    await page.getByRole('dialog').getByRole('button', { name: 'Remove' }).click();
+    await expect(page.getByText('E2E test break')).toHaveCount(0);
   });
 
   test('attendance: mark a student and the mark survives a reload', async ({ page }) => {
