@@ -34,6 +34,16 @@ describe('holidays as single days or ranges', () => {
     expect(mid.every((s) => s.status === 'cancelled' && String(s.note).startsWith('Holiday'))).toBe(true);
   });
 
+  it('a school week can join Pchum Ben and the King Father’s Commemoration Day; each day counts once', () => {
+    seedDemo(db);
+    const owner = db.get('SELECT id FROM users LIMIT 1')!.id, termId = db.get('SELECT id FROM terms LIMIT 1')!.id;
+    db.run("UPDATE holidays SET end_date = '2026-10-16' WHERE name = 'Pchum Ben Festival' AND date = '2026-10-10'");
+    const days = holidaysFor(db, owner, termId).filter((h) => h.date >= '2026-10-10' && h.date <= '2026-10-16');
+    expect(days.map((h) => h.date)).toEqual(['2026-10-10', '2026-10-11', '2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15', '2026-10-16']);
+    expect(days.find((h) => h.date === '2026-10-15')!.name).toBe('Pchum Ben Festival / Commemoration Day of King Father Norodom Sihanouk');
+    expect(new Set(holidaysFor(db, owner, termId).map((h) => h.date)).size).toBe(holidaysFor(db, owner, termId).length);
+  });
+
   it('the migration merges old one-row-per-day entries and leaves separate holidays alone', () => {
     const owner = db.run("INSERT INTO users (email, name, password_hash, role) VALUES ('m@x.test', 'M', '!', 'admin')").id;
     const add = (date: string, name: string, source = 'national') => db.run('INSERT INTO holidays (owner_id, date, name, name_km, source) VALUES (?,?,?,?,?)', owner, date, name, 'km', source);

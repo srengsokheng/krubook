@@ -107,8 +107,10 @@ describe('terms, holidays and classes', () => {
     expect(r.days).toBe(3);
     expect(holder.db.get("SELECT COUNT(*) AS n FROM holidays WHERE name = 'Break'")!.n).toBe(1);
     expect(holder.db.get('SELECT date, end_date FROM holidays WHERE id = ?', r.id)).toEqual({ date: '2027-03-01', end_date: '2027-03-03' });
-    // Overlapping dates in the same scope are refused; the existing entry is edited instead.
-    expect((await call('POST', '/holidays', { date: '2027-03-03', name: 'Clash', termId: term })).status).toBe(409);
+    // A range may cover another holiday; a second holiday starting on the same day is a duplicate.
+    const inside = ok(await call('POST', '/holidays', { date: '2027-03-02', name: 'Inside day', termId: term })).id;
+    expect((await call('POST', '/holidays', { date: '2027-03-01', name: 'Same start', termId: term })).status).toBe(409);
+    ok(await call('DELETE', `/holidays/${inside}`));
     ok(await call('PUT', `/holidays/${r.id}`, { name: 'Spring break', endDate: '2027-03-07' }));
     expect(holder.db.get('SELECT name, end_date FROM holidays WHERE id = ?', r.id)).toEqual({ name: 'Spring break', end_date: '2027-03-07' });
     ok(await call('PUT', `/holidays/${r.id}`, { endDate: null }));

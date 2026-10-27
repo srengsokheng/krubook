@@ -41,8 +41,14 @@ export function classRule(cls: Row, course: Row): SessionRule {
 
 export function holidaysFor(db: DB, ownerId: number, termId: number) {
   const rows = db.all<{ date: string; end_date: string | null; name: string }>('SELECT date, end_date, name FROM holidays WHERE owner_id = ? AND (term_id IS NULL OR term_id = ?) ORDER BY date', ownerId, termId);
-  // A range blocks every day in it.
-  return rows.flatMap((h) => { const days = []; for (let d = h.date; d <= (h.end_date ?? h.date); d = addDays(d, 1)) days.push({ date: d, name: h.name }); return days; });
+  // A range blocks every day in it. Overlapping holidays share a day once, with both names.
+  const byDay = new Map<string, string[]>();
+  for (const h of rows) for (let d = h.date; d <= (h.end_date ?? h.date); d = addDays(d, 1)) {
+    const names = byDay.get(d) ?? [];
+    if (!names.includes(h.name)) names.push(h.name);
+    byDay.set(d, names);
+  }
+  return [...byDay].sort(([a], [b]) => a.localeCompare(b)).map(([date, names]) => ({ date, name: names.join(' / ') }));
 }
 
 function context(db: DB, cls: Row) {

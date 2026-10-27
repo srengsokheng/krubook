@@ -373,9 +373,12 @@ export function buildRouter(holder: DBHolder): Router {
     if (to < from || diffDays(to, from) > 60) throw new AppError(422, 'Choose an end date on or after the start date, at most 60 days later.');
     return { from, to };
   };
-  const noOverlap = (u: User, termId: number | null, from: string, to: string, exceptId = 0) => {
-    const clash = holder.db.get<{ name: string; date: string }>('SELECT name, date FROM holidays WHERE owner_id = ? AND COALESCE(term_id, 0) = COALESCE(?, 0) AND id <> ? AND date <= ? AND COALESCE(end_date, date) >= ?', u.id, termId, exceptId, to, from);
-    if (clash) throw new AppError(409, `These dates overlap “${clash.name}” (${clash.date}). Edit that holiday instead.`);
+  // Ranges may overlap other holidays (a school can join Pchum Ben and the King Father's
+  // Commemoration Day into one week); each day still counts once. Two holidays cannot start on the
+  // same day in the same scope, which would be a duplicate.
+  const noOverlap = (u: User, termId: number | null, from: string, _to: string, exceptId = 0) => {
+    const clash = holder.db.get<{ name: string }>('SELECT name FROM holidays WHERE owner_id = ? AND COALESCE(term_id, 0) = COALESCE(?, 0) AND id <> ? AND date = ?', u.id, termId, exceptId, from);
+    if (clash) throw new AppError(409, `“${clash.name}” already starts on ${from}. Edit that holiday instead.`);
   };
   get('/holidays', (req, db, u) => db.all('SELECT h.*, t.name AS term_name FROM holidays h LEFT JOIN terms t ON t.id = h.term_id WHERE h.owner_id = ? ORDER BY h.date', u.id));
   post('/holidays', (req, db, u) => {
