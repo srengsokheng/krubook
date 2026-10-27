@@ -191,8 +191,20 @@ p { margin: 0; }
 .btn.ghost:hover { background: var(--surface-2); }
 .btn.sm { height: 28px; padding: 0 9px; font-size: var(--fs-xs); }
 .btn svg { width: 16px; height: 16px; }
-.seg { display: inline-flex; border: 1px solid var(--rule-strong); border-radius: var(--r-sm); overflow: hidden; }
-.seg button { border: 0; border-left: 1px solid var(--rule-strong); background: var(--surface); padding: 0 11px; height: 32px; font: 500 var(--fs-sm) var(--font-body); color: var(--ink-2); cursor: pointer; }
+/* Meeting time row: weekday, start, end, remove. On phones the times move to their own line. */
+.meeting-row { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.meeting-row select { width: auto; }
+@media (max-width: 480px) {
+  .meeting-row { grid-template-columns: 1fr 1fr auto; }
+  .meeting-row select { grid-column: 1 / 3; width: 100%; }
+  .meeting-row button { grid-column: 3; grid-row: 1; }
+  .meeting-row input[aria-label="Start time"] { grid-column: 1; grid-row: 2; }
+  .meeting-row input[aria-label="End time"] { grid-column: 2 / 4; grid-row: 2; }
+}
+
+/* Segmented control: options are always equal width, so a stretched control splits evenly. */
+.seg { display: inline-grid; grid-auto-flow: column; grid-auto-columns: 1fr; border: 1px solid var(--rule-strong); border-radius: var(--r-sm); overflow: hidden; }
+.seg button { border: 0; border-left: 1px solid var(--rule-strong); background: var(--surface); padding: 0 11px; height: 32px; white-space: nowrap; font: 500 var(--fs-sm) var(--font-body); color: var(--ink-2); cursor: pointer; }
 .seg button:first-child { border-left: 0; }
 .seg button.on { background: var(--ink); color: var(--surface); }
 

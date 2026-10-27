@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { usePref } from '../prefs.ts';
 import { api, download, useApi } from '../api.ts';
 import { useI18n } from '../i18n.tsx';
 import { Confirm, D, Dialog, Empty, ErrorNote, Field, Icon, Loading, Menu, Notice, Pager, Pill, PayMonth, TabBar, money, plural, useAction, useTab, useToast } from '../ui.tsx';
@@ -136,7 +137,7 @@ function StatementDetail({ id, onClose }: { id: number; onClose: () => void }) {
 
 function Sessions({ year, currency }: { year: string; currency: string }) {
   const [page, setPage] = useState(1);
-  const [size, setSize] = useState(25);
+  const [size, setSize] = usePref<number>('pageSize.paySessions', 10);
   const { data, error, loading, reload } = useApi<any>(`/pay/lines?year=${year}&page=${page}&pageSize=${size}`);
   if (error) return <ErrorNote error={error} retry={reload} />;
   if (loading && !data) return <Loading />;

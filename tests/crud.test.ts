@@ -88,6 +88,20 @@ describe('terms, holidays and classes', () => {
     expect(holder.db.get('SELECT COUNT(*) AS n FROM enrollments e JOIN classes c ON c.id = e.class_id WHERE c.term_id = ?', clone.id)!.n).toBe(0);
     expect((await call('DELETE', `/terms/${clone.id}`)).status).toBe(409);
   });
+  it('preferences: saved per account, validated, language kept in settings', async () => {
+    expect(ok(await call('GET', '/prefs')).lang).toBe('en');
+    expect(ok(await call('PUT', '/prefs', { 'pageSize.students': 25, 'sort.students': 'name', lang: 'km' }))).toMatchObject({ 'pageSize.students': 25, 'sort.students': 'name', lang: 'km' });
+    expect(ok(await call('GET', '/prefs'))).toMatchObject({ 'pageSize.students': 25, lang: 'km' });
+    expect(ok(await call('GET', '/settings')).language).toBe('km');
+    expect((await call('PUT', '/prefs', { 'pageSize.students': 30 })).status).toBe(422);
+    expect((await call('PUT', '/prefs', { theme: 'dark' })).status).toBe(422);
+    expect((await call('PUT', '/prefs', { lang: 'fr' })).status).toBe(422);
+    ok(await call('PUT', '/prefs', { lang: 'en', 'pageSize.students': 10 }));
+  });
+  it('lists default to 10 rows per page', async () => {
+    expect(ok(await call('GET', '/students')).pageSize).toBe(10);
+    expect(ok(await call('GET', '/audit')).pageSize).toBe(10);
+  });
   it('holidays: a range is one entry; edit, overlap, delete', async () => {
     const r = ok(await call('POST', '/holidays', { date: '2027-03-01', endDate: '2027-03-03', name: 'Break', termId: term }));
     expect(r.days).toBe(3);

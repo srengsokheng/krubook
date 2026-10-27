@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { usePref } from '../prefs.ts';
 import { api, useApi } from '../api.ts';
 import { useI18n } from '../i18n.tsx';
 import { Confirm, D, Empty, ErrorNote, Field, Icon, Loading, Pager, Pill, fmt, useAction, useDebounced } from '../ui.tsx';
@@ -9,9 +10,12 @@ export function Students() {
   // Search, sort and page live in the URL so the back button and reloads keep them.
   const [params, setParams] = useSearchParams();
   const q = params.get('q') ?? '';
-  const sort = params.get('sort') ?? 'code';
+  // Sort and rows per page fall back to the teacher's saved preference.
+  const [prefSort, setPrefSort] = usePref<string>('sort.students', 'code');
+  const [prefSize, setPrefSize] = usePref<number>('pageSize.students', 10);
+  const sort = params.get('sort') ?? prefSort;
   const page = Number(params.get('page') ?? 1) || 1;
-  const size = Number(params.get('size') ?? 25) || 25;
+  const size = Number(params.get('size') ?? prefSize) || prefSize;
   const [text, setText] = useState(q);
   const debounced = useDebounced(text);
   const set = (patch: Record<string, string | number>) => {
@@ -21,7 +25,7 @@ export function Students() {
   };
   useEffect(() => { if (debounced !== q) set({ q: debounced, page: 1 }); }, [debounced]); // eslint-disable-line react-hooks/exhaustive-deps
   const { data, error, loading, reload } = useApi<any>(`/students?q=${encodeURIComponent(q)}&sort=${sort}&page=${page}&pageSize=${size}`);
-  const th = (key: string, label: string) => <th aria-sort={sort === key ? 'ascending' : 'none'}><button className="btn ghost sm" style={{ padding: 0, height: 'auto', font: 'inherit', color: 'inherit' }} onClick={() => set({ sort: key, page: 1 })}>{label}{sort === key ? ' ▲' : ''}</button></th>;
+  const th = (key: string, label: string) => <th aria-sort={sort === key ? 'ascending' : 'none'}><button className="btn ghost sm" style={{ padding: 0, height: 'auto', font: 'inherit', color: 'inherit' }} onClick={() => { setPrefSort(key); set({ sort: key, page: 1 }); }}>{label}{sort === key ? ' ▲' : ''}</button></th>;
   return (
     <div className="page">
       <div className="page-head"><h1>{t('Students')}</h1></div>
@@ -41,7 +45,7 @@ export function Students() {
               ))}</tbody>
             </table>
           </div>
-          <Pager meta={data} onPage={(p) => set({ page: p })} onSize={(n) => set({ size: n, page: 1 })} noun="students" />
+          <Pager meta={data} onPage={(p) => set({ page: p })} onSize={(n) => { setPrefSize(n); set({ size: n, page: 1 }); }} noun="students" />
         </div>
       )}
     </div>

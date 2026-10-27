@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { usePref } from '../prefs.ts';
 import { Link, useSearchParams } from 'react-router-dom';
 import { download, isOfflineCopy, useApi } from '../api.ts';
 import { useI18n } from '../i18n.tsx';
@@ -12,7 +13,7 @@ export function AttendanceTab({ cls }: { cls: any }) {
   const { t, lang } = useI18n();
   const toast = useToast();
   const [params, setParams] = useSearchParams();
-  const [view, setView] = useState<'roll' | 'summary'>('roll');
+  const [view, setView] = usePref<'roll' | 'summary'>('view.attendance', 'roll');
   const { data: sessions } = useApi<any[]>(`/classes/${cls.id}/sessions`);
   const held = useMemo(() => (sessions ?? []).filter((s) => s.date <= cls.today && (s.status === 'planned' || s.status === 'completed')), [sessions, cls.today]);
   const chosen = Number(params.get('session')) || held.at(-1)?.id || null;
@@ -23,7 +24,7 @@ export function AttendanceTab({ cls }: { cls: any }) {
         <div className="row">
           <div className="seg"><button className={view === 'roll' ? 'on' : ''} onClick={() => setView('roll')}>Roll call</button><button className={view === 'summary' ? 'on' : ''} onClick={() => setView('summary')}>Summary</button></div>
           {view === 'roll' && (
-            <select aria-label="Session" value={chosen ?? ''} onChange={(e) => setParams({ session: e.target.value })} style={{ width: 300 }}>
+            <select aria-label="Session" value={chosen ?? ''} onChange={(e) => setParams({ session: e.target.value })} style={{ width: 'auto', maxWidth: '100%' }}>
               {[...held].reverse().map((s) => <option key={s.id} value={s.id}>{formatDate(s.date, lang)} {s.start_time} · {s.kind}{s.attendance_marks ? ` · ${s.attendance_marks} marked` : ''}</option>)}
             </select>
           )}
@@ -124,7 +125,7 @@ function Roll({ sessionId, cls }: { sessionId: number; cls: any }) {
 
 function Summary({ cls }: { cls: any }) {
   const [page, setPage] = useState(1);
-  const [size, setSize] = useState(50);
+  const [size, setSize] = usePref<number>('pageSize.attendance', 10);
   const [text, setText] = useState('');
   const q = useDebounced(text);
   useEffect(() => setPage(1), [q]);

@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
 import { BrowserRouter, NavLink, Route, Routes, useNavigate } from 'react-router-dom';
+import { clearPrefs, loadPrefs } from './prefs.ts';
 import { api } from './api.ts';
 import { I18nProvider, useI18n } from './i18n.tsx';
 import { Icon, Loading, ToastProvider } from './ui.tsx';
@@ -58,7 +59,7 @@ function Gate() {
   }, []);
   useEffect(() => {
     try { if (me) localStorage.setItem('krubook.me', JSON.stringify(me)); else if (me === null) localStorage.removeItem('krubook.me'); } catch { /* ignore */ }
-    if (me) { api('/settings').then((s) => setOverrides(s.statusLabels ?? {})).catch(() => {}); preloadPages(); }
+    if (me) { void loadPrefs(); api('/settings').then((s) => setOverrides(s.statusLabels ?? {})).catch(() => {}); preloadPages(); }
   }, [me, setOverrides]);
   if (me === undefined) return <div className="main"><Loading /></div>;
   if (!me) return <Login needsSetup={needsSetup} onSignedIn={setMe} />;
@@ -107,6 +108,7 @@ function Shell({ me, onSignOut, children }: { me: Me; onSignOut: () => void; chi
   const signOut = async () => {
     await api('/auth/logout', { method: 'POST' }).catch(() => {});
     navigator.serviceWorker?.controller?.postMessage({ type: 'clear-api' });
+    clearPrefs();
     onSignOut();
     nav('/');
   };

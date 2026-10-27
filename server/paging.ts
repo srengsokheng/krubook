@@ -5,7 +5,7 @@ export const PAGE_SIZES = [10, 25, 50, 100];
 export interface Page { page: number; pageSize: number; offset: number }
 
 /** Reads ?page and ?pageSize; rejects values outside the allowed set instead of guessing. */
-export function readPage(q: Record<string, unknown>, defaultSize = 25): Page {
+export function readPage(q: Record<string, unknown>, defaultSize = 10): Page {
   const page = q.page === undefined ? 1 : Number(q.page);
   const pageSize = q.pageSize === undefined ? defaultSize : Number(q.pageSize);
   if (!Number.isInteger(page) || page < 1 || page > 100000) throw new AppError(400, 'page must be a whole number of 1 or more.');

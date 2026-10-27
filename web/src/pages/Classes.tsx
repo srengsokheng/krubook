@@ -62,8 +62,8 @@ export function MeetingsEditor({ value, onChange }: { value: any[]; onChange: (v
   return (
     <div className="stack" style={{ gap: 8 }}>
       {value.map((m, i) => (
-        <div key={i} className="row" style={{ flexWrap: 'nowrap' }}>
-          <select aria-label="Weekday" value={m.weekday} onChange={(e) => set(i, { weekday: +e.target.value })} style={{ width: 130 }}>
+        <div key={i} className="meeting-row">
+          <select aria-label="Weekday" value={m.weekday} onChange={(e) => set(i, { weekday: +e.target.value })}>
             {WEEKDAYS.map((d) => <option key={d} value={d}>{weekdayName(d, lang)}</option>)}
           </select>
           <input aria-label="Start time" type="time" value={m.start} onChange={(e) => set(i, { start: e.target.value })} />

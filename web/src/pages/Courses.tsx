@@ -157,7 +157,7 @@ export function CourseDetail() {
                 {tpl.map((w: any, i: number) => (
                   <tr key={i}>
                     <td className="mono">{i + 1}</td>
-                    <td><select aria-label={`Week ${i + 1} activity`} value={w.activity} onChange={(e) => setTemplate(tpl.map((x: any, j: number) => (j === i ? { ...x, activity: e.target.value } : x)))}>{ACTIVITIES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></td>
+                    <td><select aria-label={`Week ${i + 1} activity`} style={{ width: 'auto' }} value={w.activity} onChange={(e) => setTemplate(tpl.map((x: any, j: number) => (j === i ? { ...x, activity: e.target.value } : x)))}>{ACTIVITIES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></td>
                     <td><input aria-label={`Week ${i + 1} checkpoint`} value={w.checkpoint ?? ''} placeholder="e.g. LAB 1" onChange={(e) => setTemplate(tpl.map((x: any, j: number) => (j === i ? { ...x, checkpoint: e.target.value } : x)))} /></td>
                   </tr>
                 ))}

@@ -11,7 +11,7 @@ import * as exportsSvc from './services/exports.ts';
 import * as backup from './services/backup.ts';
 import * as pay from './services/pay.ts';
 import * as reconcile from './services/reconcile.ts';
-import { pageArray, paged, readPage, readSort } from './paging.ts';
+import { PAGE_SIZES, pageArray, paged, readPage, readSort } from './paging.ts';
 import { addDays, diffDays, isISODate, isTime, rangesOverlap, startOfWeek } from '../shared/dates.ts';
 import { findOverlaps, standardTemplate, type SessionRule } from '../shared/schedule.ts';
 import { cambodianHolidays } from '../shared/holidays.ts';
@@ -131,6 +131,32 @@ export function buildRouter(holder: DBHolder): Router {
   post('/auth/logout', (req, db, _u, res) => { endSession(db, req, res); return { ok: true }; }, { auth: false });
 
   // ---- Settings --------------------------------------------------------------------------
+  // Per-account display preferences (language, rows per page, sort orders, views), so they follow the
+  // teacher to every device. Only known keys and values are stored.
+  const PREF_RULES: Array<[RegExp, (v: unknown) => boolean]> = [
+    [/^lang$/, (v) => v === 'en' || v === 'km'],
+    [/^pageSize\.[a-zA-Z]{1,30}$/, (v) => PAGE_SIZES.includes(Number(v))],
+    [/^sort\.[a-zA-Z]{1,30}$/, (v) => typeof v === 'string' && /^[a-zA-Z_-]{1,30}$/.test(v)],
+    [/^view\.[a-zA-Z]{1,30}$/, (v) => typeof v === 'string' && /^[a-zA-Z_-]{1,30}$/.test(v)],
+  ];
+  const readPrefs = (db: DB, u: User): Record<string, unknown> => {
+    try { return JSON.parse(getSetting(db, u.id, 'prefs', '{}')); } catch { return {}; }
+  };
+  get('/prefs', (_req, db, u) => ({ lang: getSetting(db, u.id, 'language', 'en'), ...readPrefs(db, u) }));
+  put('/prefs', (req, db, u) => {
+    const b = req.body ?? {};
+    const prefs = readPrefs(db, u);
+    for (const [k, v] of Object.entries(b)) {
+      const rule = PREF_RULES.find(([re]) => re.test(k));
+      if (!rule || !rule[1](v)) throw new AppError(422, `Unknown preference or value: ${k}.`);
+      prefs[k] = k.startsWith('pageSize.') ? Number(v) : v;
+    }
+    if (Object.keys(prefs).length > 60) throw new AppError(422, 'Too many preferences.');
+    if (typeof b.lang === 'string') setSetting(db, u.id, 'language', b.lang);
+    delete prefs.lang;
+    setSetting(db, u.id, 'prefs', JSON.stringify(prefs));
+    return { lang: getSetting(db, u.id, 'language', 'en'), ...prefs };
+  });
   get('/settings', (_req, db, u) => ({
     timezone: getSetting(db, u.id, 'timezone', DEFAULT_TZ),
     language: getSetting(db, u.id, 'language', 'en'),
@@ -509,7 +535,7 @@ export function buildRouter(holder: DBHolder): Router {
 
   // ---- Students & roster -------------------------------------------------------------------
   get('/students', (req, db, u) => {
-    const p = readPage(req.query, 25);
+    const p = readPage(req.query);
     const q = `%${String(req.query.q ?? '').trim()}%`;
     const order = readSort(req.query, { code: 's.student_code', km: 's.name_km', latin: 's.name_latin COLLATE NOCASE' }, 'code');
     const where = 's.owner_id = ? AND (s.student_code LIKE ? OR s.name_latin LIKE ? OR s.name_km LIKE ? OR s.email LIKE ?)';
@@ -582,12 +608,12 @@ export function buildRouter(holder: DBHolder): Router {
   post('/classes/:id/grade-config/status', (req, db, u) => records.setConfigStatus(db, u, num(req.params.id, 'class'), req.body.status));
   get('/sessions/:id/attendance', (req, db, u) => records.sessionAttendance(db, u, num(req.params.id, 'session')));
   get('/classes/:id/attendance', (req, db, u) => {
-    const p = readPage(req.query, 50);
+    const p = readPage(req.query);
     const r = records.attendanceSummary(db, u, num(req.params.id, 'class'), { offset: p.offset, pageSize: p.pageSize, q: String(req.query.q ?? '') });
     return { ...r, page: p.page, pageSize: p.pageSize, pages: Math.max(1, Math.ceil(r.total / p.pageSize)) };
   });
   get('/audit', (req, db, u) => {
-    const p = readPage(req.query, 25);
+    const p = readPage(req.query);
     const entity = String(req.query.entity ?? '');
     const where = `${u.role === 'admin' ? '1' : 'a.user_id = ?'} ${entity ? 'AND a.entity = ?' : ''}`;
     const params = [...(u.role === 'admin' ? [] : [u.id]), ...(entity ? [entity] : [])];
@@ -614,7 +640,7 @@ export function buildRouter(holder: DBHolder): Router {
   });
   get('/pay', (req, db, u) => pay.payOverview(db, u, String(req.query.year ?? today(db, u).slice(0, 4))));
   get('/pay/lines', (req, db, u) => {
-    const p = readPage(req.query, 25);
+    const p = readPage(req.query);
     const month = String(req.query.month ?? '');
     const year = String(req.query.year ?? today(db, u).slice(0, 4));
     if (month && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new AppError(400, 'month must be YYYY-MM.');

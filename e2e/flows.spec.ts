@@ -88,6 +88,30 @@ test.describe('signed in', () => {
     await expect(page.locator('td.cell.invalid').first()).toBeVisible();
   });
 
+  test('preferences follow the account to another device; tables default to 10 rows', async ({ page, browser }) => {
+    await page.goto('/students');
+    await expect(page.getByText(/^1–10 of/)).toBeVisible();
+    await page.getByLabel('Rows per page').selectOption('25');
+    await expect(page.getByText(/^1–25 of/)).toBeVisible();
+    // A second "device": a fresh browser with no cached data, signing in to the same account.
+    const other = await browser.newPage({ storageState: undefined });
+    await other.goto('/');
+    await other.locator('#email').fill('teacher@krubook.test');
+    await other.locator('#password').fill('krubook-demo');
+    await other.getByRole('button', { name: 'Sign in' }).click();
+    await expect(other.locator('#password')).toHaveCount(0);
+    await other.goto('/students');
+    await expect(other.getByText(/^1–25 of/)).toBeVisible();
+    await other.getByRole('button', { name: 'ខ្មែរ' }).first().click();
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+    await expect.poll(() => page.evaluate(() => document.documentElement.lang)).toBe('km');
+    // Put things back for the page tests.
+    await page.getByRole('button', { name: 'English' }).first().click();
+    await page.getByLabel('Rows per page').selectOption('10');
+    await other.close();
+  });
+
   test('sign out ends the session', async ({ browser }) => {
     // A separate sign-in so the saved session used by the page tests stays valid.
     const page = await browser.newPage({ storageState: undefined });

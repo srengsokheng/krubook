@@ -4,6 +4,7 @@ import { useI18n, type Lang } from '../i18n.tsx';
 import { Confirm, D, Empty, ErrorNote, Field, Icon, Loading, Notice, Pager, Pill, TabBar, useAction, useTab, useToast } from '../ui.tsx';
 import { HolidayCheck } from './Terms.tsx';
 import { diffDays } from '../../../shared/dates.ts';
+import { usePref } from '../prefs.ts';
 import type { Me } from '../App.tsx';
 
 const STATUS_KEYS = ['planned', 'completed', 'cancelled', 'skipped', 'moved', 'ahead', 'on_schedule', 'behind', 'not_started'];
@@ -48,7 +49,7 @@ export function Settings({ me }: { me: Me }) {
           <div className="panel-head"><h2>Language, time and pay period</h2></div>
           <div className="panel-body stack">
             <Field label={t('Language')}>
-              <div className="seg">{(['en', 'km'] as Lang[]).map((l) => <button key={l} className={lang === l ? 'on' : ''} onClick={() => { setLang(l); api('/settings', { method: 'PUT', body: { language: l } }).catch(() => {}); }}>{l === 'en' ? 'English' : 'ខ្មែរ'}</button>)}</div>
+              <div className="seg">{(['en', 'km'] as Lang[]).map((l) => <button key={l} className={lang === l ? 'on' : ''} onClick={() => setLang(l)}>{l === 'en' ? 'English' : 'ខ្មែរ'}</button>)}</div>
             </Field>
             <p className="faint xs">The Khmer interface covers navigation, headings, statuses and common actions; longer help text is still in English.</p>
             <Field label="Time zone" hint={`“Today” is ${s.today} in this zone. Cambodia does not use daylight saving time.`}><input id="st-tz" value={f.timezone} onChange={(e) => setF({ ...f, timezone: e.target.value })} /></Field>
@@ -173,7 +174,7 @@ export function Settings({ me }: { me: Me }) {
 /** Who changed what, newest first (grades, attendance, schedules, enrollments, pay). */
 function Activity() {
   const [page, setPage] = useState(1);
-  const [size, setSize] = useState(25);
+  const [size, setSize] = usePref<number>('pageSize.activity', 10);
   const [entity, setEntity] = useState('');
   const { data, error, reload } = useApi<any>(`/audit?page=${page}&pageSize=${size}${entity ? `&entity=${entity}` : ''}`);
   if (error) return <ErrorNote error={error} retry={reload} />;

@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { usePref } from './prefs.ts';
 
 export type Lang = 'en' | 'km';
 
@@ -97,14 +98,9 @@ type Ctx = { lang: Lang; setLang: (l: Lang) => void; t: (s: string) => string; s
 const Ctx = createContext<Ctx>({ lang: 'en', setLang: () => {}, t: (s) => s, setOverrides: () => {} });
 
 export function I18nProvider({ children }: { children: ReactNode }) {
-  const [lang, setLangState] = useState<Lang>(() => {
-    try { return (localStorage.getItem('krubook.lang') as Lang) || 'en'; } catch { return 'en'; }
-  });
+  // The language is an account preference, so it follows the teacher to every device.
+  const [lang, setLang] = usePref<Lang>('lang', 'en');
   useEffect(() => { document.documentElement.lang = lang; }, [lang]);
-  const setLang = (l: Lang) => {
-    setLangState(l);
-    try { localStorage.setItem('krubook.lang', l); } catch { /* not persisted */ }
-  };
   // Teachers can rename statuses in Settings; their wording wins over both dictionaries.
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   const t = (s: string) => overrides[s] || (lang === 'km' ? km[s] : en[s]) || s;
