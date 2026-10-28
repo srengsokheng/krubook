@@ -56,13 +56,17 @@ export function payPeriod(month: string, startDay = DEFAULT_PAY_START_DAY): { fr
 }
 
 // Late arrival. The teacher checks in for a session; minutes after the scheduled start are late.
-// With the 'deduct' rule, an arrival later than the grace period loses the pay for every late
-// minute (not only the minutes past the grace period). 'none' records lateness without changing pay.
-export interface LateRule {
-  mode: 'deduct' | 'none';
-  graceMinutes: number;
+// The late rule is a list of steps: arriving more than `afterMinutes` late cuts `cutPercent` of that
+// session's pay, and the highest step reached applies. The default: up to 10 minutes late costs
+// nothing, more than 10 cuts half, more than 30 leaves the session unpaid. No steps = no cuts.
+export interface LateStep {
+  afterMinutes: number;
+  cutPercent: number;
 }
-export const DEFAULT_LATE_RULE: LateRule = { mode: 'deduct', graceMinutes: 0 };
+export interface LateRule {
+  steps: LateStep[];
+}
+export const DEFAULT_LATE_RULE: LateRule = { steps: [{ afterMinutes: 10, cutPercent: 50 }, { afterMinutes: 30, cutPercent: 100 }] };
 
 const toMinutes = (t: string) => +t.slice(0, 2) * 60 + +t.slice(3, 5);
 
@@ -72,22 +76,37 @@ export function lateMinutes(start: string, checkin: string | null | undefined): 
   return Math.max(0, toMinutes(checkin) - toMinutes(start));
 }
 
-/**
- * The amount taken off a session for arriving late. Hourly rates lose the late minutes at the
- * hourly rate; per-session rates lose the same share of the session's scheduled length.
- */
-export function lateDeduction(rate: Rate | null, scheduledMinutes: number, late: number, rule: LateRule): { minutes: number; amount: number } {
-  if (!rate || rule.mode !== 'deduct' || late <= rule.graceMinutes || scheduledMinutes <= 0) return { minutes: 0, amount: 0 };
-  const minutes = Math.min(late, scheduledMinutes);
-  const perMinute = rate.mode === 'hourly' ? rate.amount / 60 : rate.amount / scheduledMinutes;
-  return { minutes, amount: Math.round(perMinute * minutes * 100) / 100 };
+/** The share of a session's pay (0–100) lost for arriving `late` minutes after the start. */
+export function lateCutPercent(late: number, rule: LateRule): number {
+  let cut = 0;
+  for (const s of rule.steps) if (late > s.afterMinutes) cut = Math.max(cut, s.cutPercent);
+  return cut;
+}
+
+/** The amount taken off a session paying `pay` for arriving `late` minutes after the start. */
+export function lateDeduction(pay: number, late: number, rule: LateRule): { percent: number; amount: number } {
+  const percent = lateCutPercent(late, rule);
+  return { percent, amount: Math.round(pay * percent) / 100 };
+}
+
+/** Checks a late rule from settings or a request; returns null when it is not valid. */
+export function validLateRule(v: unknown): LateRule | null {
+  const steps = (v as LateRule)?.steps;
+  if (!Array.isArray(steps) || steps.length > 5) return null;
+  const out: LateStep[] = [];
+  for (const s of steps) {
+    const after = Number(s?.afterMinutes), cut = Number(s?.cutPercent);
+    if (!Number.isInteger(after) || after < 0 || after > 240 || !Number.isFinite(cut) || cut <= 0 || cut > 100) return null;
+    out.push({ afterMinutes: after, cutPercent: Math.round(cut * 100) / 100 });
+  }
+  out.sort((a, b) => a.afterMinutes - b.afterMinutes);
+  if (new Set(out.map((s) => s.afterMinutes)).size !== out.length) return null;
+  return { steps: out };
 }
 
 export function parseLateRule(raw: string | null | undefined): LateRule {
   try {
-    const v = JSON.parse(raw ?? '');
-    const grace = Number(v?.graceMinutes);
-    return { mode: v?.mode === 'none' ? 'none' : 'deduct', graceMinutes: Number.isInteger(grace) && grace >= 0 && grace <= 120 ? grace : 0 };
+    return validLateRule(JSON.parse(raw ?? '')) ?? DEFAULT_LATE_RULE;
   } catch {
     return DEFAULT_LATE_RULE;
   }

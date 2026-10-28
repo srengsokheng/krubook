@@ -120,7 +120,8 @@ export function Dashboard() {
             <dl className="kv panel-body">
               <dt>Sessions taught</dt><dd className="mono">{m?.taughtSessions ?? 0} <span className="faint">· {m?.plannedSessions ?? 0} still planned</span></dd>
               <dt>Hours</dt><dd className="mono">{((m?.taughtMinutes ?? 0) / 60).toFixed(1)}</dd>
-              <dt>Earned</dt><dd className="mono">{money(m?.total ?? 0, d.currency)}</dd>
+              <dt>Earned so far</dt><dd className="mono">{money(m?.total ?? 0, d.currency)}{m?.deductions > 0 && <span className="faint"> · −{money(m.deductions, d.currency)} late</span>}</dd>
+              <dt>Expected</dt><dd className="mono">{money(m?.expectedTotal ?? 0, d.currency)} <span className="faint">· {((m?.scheduledMinutes ?? 0) / 60).toFixed(1)} h scheduled</span></dd>
             </dl>
           </section>
 

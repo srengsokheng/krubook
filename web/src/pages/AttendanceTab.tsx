@@ -47,23 +47,29 @@ function Roll({ sessionId, cls }: { sessionId: number; cls: any }) {
   const { lang } = useI18n();
   const toast = useToast();
   const { data, error, loading, reload } = useApi<any>(`/sessions/${sessionId}/attendance`);
-  const [marks, setMarks] = useState<Record<number, { status: string | null; version: number | null; pending?: boolean }>>({});
+  // null until the saved marks and this device's unsent ones are merged: a tap before that would be
+  // read as the first tick of a fresh roll call and mark everyone else absent.
+  const [marks, setMarks] = useState<Record<number, { status: string | null; version: number | null; pending?: boolean }> | null>(null);
   const [q, setQ] = useState('');
   const [clearing, setClearing] = useState(false);
 
+  useEffect(() => { setMarks(null); }, [sessionId]);
   useEffect(() => {
-    if (!data) return;
-    const m: typeof marks = {};
+    if (!data || data.session.id !== sessionId) return;
+    let live = true;
+    const m: Record<number, { status: string | null; version: number | null; pending?: boolean }> = {};
     for (const r of data.roster) m[r.enrollmentId] = { status: r.status, version: r.version };
     pendingOps().then((ops) => {
       for (const op of ops) if (op.type === 'attendance' && op.sessionId === sessionId && m[op.enrollmentId]) m[op.enrollmentId] = { ...m[op.enrollmentId], status: op.status, pending: true };
-      setMarks({ ...m });
+      if (live) setMarks({ ...m });
     });
+    return () => { live = false; };
   }, [data, sessionId]);
   // After a sync, re-read the roll so the copy kept for offline use matches the server.
   const refreshTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => onApplied((list) => {
     setMarks((prev) => {
+      if (!prev) return prev;
       const n = { ...prev };
       for (const a of list) if (a.op.type === 'attendance' && a.op.sessionId === sessionId && n[a.op.enrollmentId]) n[a.op.enrollmentId] = { ...n[a.op.enrollmentId], version: a.version, pending: false };
       return n;
@@ -73,8 +79,8 @@ function Roll({ sessionId, cls }: { sessionId: number; cls: any }) {
   }), [sessionId, reload]);
 
   if (error) return <ErrorNote error={error} retry={reload} />;
-  if (loading && !data) return <Loading rows={8} />;
-  if (!data) return null;
+  if ((loading && !data) || (data && !marks) || (data && data.session.id !== sessionId)) return <Loading rows={8} />;
+  if (!data || !marks) return null;
   const roster = data.roster.filter((r: any) => !q || r.code.includes(q) || (r.nameLatin ?? '').toLowerCase().includes(q.toLowerCase()) || (r.nameKm ?? '').includes(q));
   const active = data.roster.filter((r: any) => r.enrollmentStatus === 'active');
   const unmarked = active.filter((r: any) => !marks[r.enrollmentId]?.status).map((r: any) => r.enrollmentId as number);
@@ -84,7 +90,7 @@ function Roll({ sessionId, cls }: { sessionId: number; cls: any }) {
       return { type: 'attendance' as const, sessionId, enrollmentId: id, status, baseVersion: marks[id]?.version ?? null, label: `${cls.code} ${formatDate(data.session.date)} ${r.code}` };
     });
     if (!ops.length) return;
-    setMarks((m) => { const n = { ...m }; for (const o of ops) n[o.enrollmentId] = { ...n[o.enrollmentId], status: o.status, pending: true }; return n; });
+    setMarks((m) => { const n = { ...m! }; for (const o of ops) n[o.enrollmentId] = { ...n[o.enrollmentId], status: o.status, pending: true }; return n; });
     void enqueue(ops);
   };
   const toggle = (id: number) => {

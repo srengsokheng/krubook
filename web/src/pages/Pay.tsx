@@ -61,16 +61,16 @@ function Months({ p, reload }: { p: any; reload: () => void }) {
     <>
       <div className="panel table-wrap">
         <table className="table mobile-cards">
-          <thead><tr><th>Pay month</th><th className="num">Hours</th><th className="num">Earned</th><th>Status</th><th className="no-print" /></tr></thead>
+          <thead><tr><th>Pay month</th><th className="num">Expected</th><th className="num">Actual</th><th>Status</th><th className="no-print" /></tr></thead>
           <tbody>
             {p.months.map((m: any) => {
               const sts = p.statements.filter((s: any) => s.month === m.month);
               const canApprove = m.estimated !== 0 && m.month <= p.currentMonth;
               return (
                 <tr key={m.month}>
-                  <td data-label="Pay month"><span><PayMonth month={m.month} from={m.from} to={m.to} />{m.expected > 0 && <div className="faint xs mono">+ {money(m.expected, cur)} planned</div>}</span></td>
-                  <td data-label="Hours" className="num">{(m.taughtMinutes / 60).toFixed(1)}</td>
-                  <td data-label="Earned" className="num"><b>{money(m.total, cur)}</b></td>
+                  <td data-label="Pay month"><span><PayMonth month={m.month} from={m.from} to={m.to} /></span></td>
+                  <td data-label="Expected" className="num"><span>{money(m.expectedTotal, cur)}<div className="faint xs mono">{(m.scheduledMinutes / 60).toFixed(1)} h scheduled{m.adjustments ? ` · ${m.adjustments > 0 ? '+' : '−'}${money(Math.abs(m.adjustments), cur)} adj.` : ''}</div></span></td>
+                  <td data-label="Actual" className="num"><span><b>{money(m.total, cur)}</b><div className="faint xs mono">{(m.taughtMinutes / 60).toFixed(1)} h worked{m.plannedSessions > 0 ? ` · ${m.plannedSessions} to go` : ''}{m.deductions > 0 ? ` · −${money(m.deductions, cur)} late` : ''}</div></span></td>
                   <td data-label="Status">
                     <div className="row" style={{ gap: 6 }}>
                       {sts.map((s: any) => <button key={s.id} className="btn ghost sm" style={{ padding: 0 }} onClick={() => setOpen(s.id)}><Pill tone={s.status === 'paid' ? 'ok' : 'accent'}>{s.status === 'paid' ? `Paid ${money(s.paidAmount, cur)}` : `Approved ${money(s.total, cur)}`}</Pill></button>)}
@@ -87,7 +87,7 @@ function Months({ p, reload }: { p: any; reload: () => void }) {
           </tbody>
         </table>
       </div>
-      <p className="faint xs">Each pay month covers the teaching dates shown under it (change the pay period in Settings). Approving a month fixes its sessions, rates and amounts. Later rate changes then only affect months that are not approved.</p>
+      <p className="faint xs">Expected is every session scheduled in the pay month at full rate, plus adjustments; holidays and cancelled sessions are left out. Actual is what you worked: sessions you checked in to or recorded as taught, minus cuts for arriving late. Each pay month covers the teaching dates shown under it (change the pay period in Settings). Approving a month fixes its sessions, rates and amounts.</p>
       {paying && <MarkPaid s={paying} onClose={() => setPaying(null)} onDone={reload} />}
       {undo && <Confirm title={`Undo the ${undo.month} approval?`} body="Its sessions go back to estimates and will use the current rates." confirmLabel="Undo approval" danger onConfirm={() => run(() => api(`/pay/statements/${undo.id}`, { method: 'DELETE' }), 'Approval undone').then(reload)} onClose={() => setUndo(null)} />}
       {open && <StatementDetail id={open} onClose={() => setOpen(null)} />}
@@ -155,7 +155,7 @@ function Sessions({ year, currency }: { year: string; currency: string }) {
               <td data-label="Arrived" className="small"><Arrived l={l} currency={currency} /></td>
               <td data-label="Rate" className="small">{l.rate ?? <Pill tone="warn">no rate</Pill>}</td>
               <td data-label="Amount" className="num">{money(l.amount, currency)}</td>
-              <td data-label="Status">{l.statementStatus ? <Pill tone={l.statementStatus === 'paid' ? 'ok' : 'accent'}>{l.statementStatus}</Pill> : <span className="faint small">estimate</span>}</td>
+              <td data-label="Status">{l.statementStatus ? <Pill tone={l.statementStatus === 'paid' ? 'ok' : 'accent'}>{l.statementStatus}</Pill> : <span className="faint small">estimate{l.recorded ? '' : ' · checked in, not recorded'}</span>}</td>
             </tr>
           ))}</tbody>
         </table>
@@ -265,35 +265,42 @@ function AdjustmentForm({ a, onClose, onDone }: { a: any; onClose: () => void; o
 }
 
 function Arrived({ l, currency }: { l: any; currency: string }) {
-  if (!l.checkin) return <span className="faint">—</span>;
+  if (!l.checkin) return <span className="faint">{l.recorded ? '—' : ''}</span>;
   return (
     <span className="mono">
       {l.checkin}{' '}
-      {l.late > 0 ? <Pill tone="warn" title={l.deduction > 0 ? `${money(l.deduction, currency)} deducted` : 'Within the grace period; not deducted'}>{l.late} min late{l.deduction > 0 ? ` · −${money(l.deduction, currency)}` : ''}</Pill> : <span className="faint xs">on time</span>}
+      {l.late > 0 ? <Pill tone={l.deduction > 0 ? 'warn' : undefined} title={l.deduction > 0 ? `${money(l.deduction, currency)} cut for arriving late` : 'Not late enough to cut pay'}>{l.late} min late{l.deduction > 0 ? ` · −${money(l.deduction, currency)}` : ''}</Pill> : <span className="faint xs">on time</span>}
     </span>
   );
 }
 
-function LateRule({ rule, onSaved }: { rule: { mode: 'deduct' | 'none'; graceMinutes: number }; onSaved: () => void }) {
-  const [f, setF] = useState({ mode: rule.mode, grace: String(rule.graceMinutes) });
+function LateRule({ rule, onSaved }: { rule: { steps: Array<{ afterMinutes: number; cutPercent: number }> }; onSaved: () => void }) {
+  const [steps, setSteps] = useState(rule.steps.map((x) => ({ after: String(x.afterMinutes), cut: String(x.cutPercent) })));
   const { busy, run } = useAction();
-  const changed = f.mode !== rule.mode || Number(f.grace) !== rule.graceMinutes;
+  const body = { steps: steps.map((x) => ({ afterMinutes: Number(x.after), cutPercent: Number(x.cut) })) };
+  const changed = JSON.stringify(body.steps) !== JSON.stringify(rule.steps);
+  const edit = (i: number, k: 'after' | 'cut', v: string) => setSteps(steps.map((x, j) => (j === i ? { ...x, [k]: v } : x)));
+  const sorted = [...body.steps].filter((x) => Number.isFinite(x.afterMinutes)).sort((a, b) => a.afterMinutes - b.afterMinutes);
   return (
     <section className="panel">
       <div className="panel-head"><h2>Late arrivals</h2></div>
       <div className="panel-body stack">
-        <p className="faint small">Check in on the dashboard when you arrive. A check-in after the scheduled start counts as late.</p>
-        <div className="form-grid">
-          <Field label="When you arrive late">
-            <select id="late-mode" value={f.mode} onChange={(e) => setF({ ...f, mode: e.target.value as 'deduct' | 'none' })}>
-              <option value="deduct">Deduct the late minutes from pay</option>
-              <option value="none">Record it, but do not change pay</option>
-            </select>
-          </Field>
-          {f.mode === 'deduct' && <Field label="Grace period (minutes)" hint="Arriving this late or less is not deducted. Later than this, every late minute is deducted."><input id="late-grace" type="number" min={0} max={120} step={1} value={f.grace} onChange={(e) => setF({ ...f, grace: e.target.value })} /></Field>}
+        <p className="faint small">Check in on the dashboard when you arrive. A session counts as worked once you check in (or record it as taught); arriving late cuts that session’s pay:</p>
+        <div className="stack" style={{ gap: 8 }}>
+          {steps.map((x, i) => (
+            <div key={i} className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+              <span className="small">Over</span>
+              <input aria-label={`Step ${i + 1} minutes late`} type="number" min={0} max={240} step={1} value={x.after} onChange={(e) => edit(i, 'after', e.target.value)} style={{ width: 68 }} />
+              <span className="small">min late, cut</span>
+              <input aria-label={`Step ${i + 1} percent cut`} type="number" min={1} max={100} step={1} value={x.cut} onChange={(e) => edit(i, 'cut', e.target.value)} style={{ width: 68 }} />
+              <span className="small">%</span>
+              <button className="btn sm ghost" aria-label={`Remove step ${i + 1}`} onClick={() => setSteps(steps.filter((_, j) => j !== i))}><Icon name="trash" /></button>
+            </div>
+          ))}
+          {steps.length < 5 && <button className="btn sm" style={{ alignSelf: 'flex-start' }} onClick={() => setSteps([...steps, { after: '', cut: '' }])}><Icon name="plus" />Add step</button>}
         </div>
-        <p className="faint xs">Hourly rates lose the late minutes at the hourly rate; per-session rates lose the same share of the session. Approved months keep the amounts they were approved with.</p>
-        <button className="btn primary" style={{ alignSelf: 'flex-start' }} disabled={busy || !changed} onClick={() => run(() => api('/settings', { method: 'PUT', body: { lateRule: { mode: f.mode, graceMinutes: Number(f.grace || 0) } } }), 'Late-arrival rule saved').then((r) => { if (r) onSaved(); })}>Save</button>
+        <p className="faint xs">{sorted.length ? `Up to ${sorted[0].afterMinutes} min late: no cut. ` : 'No steps: lateness is recorded but pay is not cut. '}The highest step reached applies; 100% means the session is unpaid. Approved months keep the amounts they were approved with.</p>
+        <button className="btn primary" style={{ alignSelf: 'flex-start' }} disabled={busy || !changed} onClick={() => run(() => api('/settings', { method: 'PUT', body: { lateRule: body } }), 'Late-arrival rule saved').then((r) => { if (r) onSaved(); })}>Save</button>
       </div>
     </section>
   );

@@ -18,7 +18,7 @@ import { addDays, diffDays, isISODate, isTime, rangesOverlap, startOfWeek } from
 import { findOverlaps, standardTemplate, type SessionRule } from '../shared/schedule.ts';
 import { cambodianHolidays } from '../shared/holidays.ts';
 import { DEFAULT_TZ } from '../shared/dates.ts';
-import { payPeriod } from '../shared/pay.ts';
+import { payPeriod, validLateRule } from '../shared/pay.ts';
 
 export interface DBHolder {
   db: DB;
@@ -192,12 +192,11 @@ export function buildRouter(holder: DBHolder): Router {
       setSetting(db, u.id, 'pay.periodStart', String(n));
     }
     if (b.lateRule !== undefined) {
-      const mode = b.lateRule?.mode, grace = Number(b.lateRule?.graceMinutes);
-      if (mode !== 'deduct' && mode !== 'none') throw new AppError(422, 'Choose whether late arrivals are deducted.');
-      if (!Number.isInteger(grace) || grace < 0 || grace > 120) throw new AppError(422, 'The grace period must be 0 to 120 minutes.');
+      const rule = validLateRule(b.lateRule);
+      if (!rule) throw new AppError(422, 'Each late step needs minutes from 0 to 240 and a cut from 1 to 100%, with no two steps at the same minute (at most 5 steps).');
       const before = pay.loadLateRule(db, u.id);
-      setSetting(db, u.id, 'pay.lateRule', JSON.stringify({ mode, graceMinutes: grace }));
-      db.audit(u.id, 'setting', null, 'pay.lateRule', before, { mode, graceMinutes: grace });
+      setSetting(db, u.id, 'pay.lateRule', JSON.stringify(rule));
+      db.audit(u.id, 'setting', null, 'pay.lateRule', before, rule);
     }
     return { ok: true };
   });

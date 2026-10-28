@@ -2,11 +2,12 @@ import { AppError, type DB, type Row } from '../db.ts';
 import type { User } from '../auth.ts';
 import { getSetting, ownSession, today } from './access.ts';
 import { DEFAULT_TZ, isTime, nowTimeIn } from '../../shared/dates.ts';
-import { lateMinutes } from '../../shared/pay.ts';
+import { lateCutPercent, lateMinutes } from '../../shared/pay.ts';
 import { loadLateRule } from './pay.ts';
 
 // The teacher's own arrival for a session. "Check in" on the day records the current local time;
-// a time typed in afterwards is kept as a manual entry. Lateness feeds the pay page (see pay.ts).
+// a time typed in afterwards is kept as a manual entry. A check-in makes the session count as worked
+// for pay, and lateness cuts its pay by the late rule (see pay.ts).
 
 const NOT_HELD = ['cancelled', 'moved', 'skipped'];
 
@@ -21,8 +22,7 @@ function out(db: DB, u: User, s: Row, k: Row | undefined) {
     source: k?.source ?? null,
     note: k?.note ?? null,
     late,
-    deducted: rule.mode === 'deduct' && late > rule.graceMinutes,
-    graceMinutes: rule.graceMinutes,
+    cutPercent: lateCutPercent(late, rule),
     locked,
     canTap: !k && s.date === today(db, u) && !NOT_HELD.includes(s.status),
     editable: !locked && !NOT_HELD.includes(s.status) && s.date <= today(db, u),

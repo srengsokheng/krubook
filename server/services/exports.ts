@@ -176,27 +176,29 @@ export async function attendanceXlsx(db: DB, u: User, classId: number): Promise<
 export async function payXlsx(db: DB, u: User, year: string): Promise<Buffer> {
   const p = payOverview(db, u, year);
   const wb = new ExcelJS.Workbook();
-  const { ws } = sheetWithMeta(wb, 'Monthly summary', [['Teacher', u.name], ['Year', year], ['Pay period', p.payStartDay === 1 ? 'Calendar month' : `Day ${p.payStartDay} of the previous month to day ${p.payStartDay - 1} of the pay month`], ['Note', 'Estimated = taught sessions not yet approved. Approved and paid amounts come from frozen pay statements. Expected = planned sessions still ahead.'], ['Exported', new Date().toISOString().slice(0, 16).replace('T', ' ')]], [
+  const { ws } = sheetWithMeta(wb, 'Monthly summary', [['Teacher', u.name], ['Year', year], ['Pay period', p.payStartDay === 1 ? 'Calendar month' : `Day ${p.payStartDay} of the previous month to day ${p.payStartDay - 1} of the pay month`], ['Note', 'Hours scheduled and Expected = every session in the pay month that is not cancelled, at full rate (Expected adds that month’s adjustments). Estimated = worked sessions (checked in or recorded as taught) not yet approved, after late cuts. Approved and paid amounts come from frozen pay statements. Expected (planned) = planned sessions still ahead.'], ['Exported', new Date().toISOString().slice(0, 16).replace('T', ' ')]], [
     { header: 'Pay month', key: 'month', width: 10 },
     { header: 'From', key: 'from', width: 12 },
     { header: 'To', key: 'to', width: 12 },
+    { header: 'Hours scheduled', key: 'sh', width: 15, style: { numFmt: '0.00' } },
+    { header: `Expected (${p.currency})`, key: 'sp', width: 15, style: { numFmt: '#,##0.00' } },
     { header: 'Sessions taught', key: 'n', width: 14 },
     { header: 'Hours taught', key: 'h', width: 12, style: { numFmt: '0.00' } },
     { header: 'Make-up sessions', key: 'mk', width: 15 },
     { header: 'Late arrivals', key: 'late', width: 12 },
-    { header: 'Late deductions', key: 'ded', width: 14, style: { numFmt: '#,##0.00' } },
+    { header: 'Late cuts', key: 'ded', width: 14, style: { numFmt: '#,##0.00' } },
     { header: `Estimated (${p.currency})`, key: 'est', width: 15, style: { numFmt: '#,##0.00' } },
     { header: 'Approved', key: 'appr', width: 12, style: { numFmt: '#,##0.00' } },
     { header: 'Paid', key: 'paid', width: 12, style: { numFmt: '#,##0.00' } },
     { header: 'Month total', key: 'total', width: 13, style: { numFmt: '#,##0.00' } },
     { header: 'Expected (planned)', key: 'exp', width: 17, style: { numFmt: '#,##0.00' } },
   ]);
-  for (const m of p.months) addRow(ws, { month: m.month, from: m.from, to: m.to, n: m.taughtSessions, h: m.taughtMinutes / 60, mk: m.makeupSessions, late: m.lateSessions, ded: m.deductions, est: m.estimated, appr: m.approved, paid: m.paid, total: m.total, exp: m.expected });
+  for (const m of p.months) addRow(ws, { month: m.month, from: m.from, to: m.to, sh: m.scheduledMinutes / 60, sp: m.expectedTotal, n: m.taughtSessions, h: m.taughtMinutes / 60, mk: m.makeupSessions, late: m.lateSessions, ded: m.deductions, est: m.estimated, appr: m.approved, paid: m.paid, total: m.total, exp: m.expected });
   const det = wb.addWorksheet('Sessions');
   det.columns = [
     { header: 'Date', key: 'date', width: 12, style: { numFmt: 'yyyy-mm-dd' } }, { header: 'Pay month', key: 'pm', width: 10 }, { header: 'Start', key: 'start', width: 7 }, { header: 'Class', key: 'code', width: 10 },
     { header: 'Course', key: 'course', width: 24 }, { header: 'Minutes', key: 'min', width: 9 }, { header: 'Make-up', key: 'mk', width: 9 }, { header: 'Rate', key: 'rate', width: 14 },
-    { header: 'Checked in', key: 'in', width: 11 }, { header: 'Late (min)', key: 'late', width: 10 }, { header: 'Late deduction', key: 'ded', width: 14, style: { numFmt: '#,##0.00' } },
+    { header: 'Checked in', key: 'in', width: 11 }, { header: 'Late (min)', key: 'late', width: 10 }, { header: 'Late cut', key: 'ded', width: 14, style: { numFmt: '#,##0.00' } },
     { header: 'Amount', key: 'amt', width: 10, style: { numFmt: '#,##0.00' } }, { header: 'Status', key: 'st', width: 11 },
   ];
   det.getRow(1).font = { bold: true };

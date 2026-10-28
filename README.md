@@ -206,16 +206,20 @@ A session can appear on only one statement (unique index), so it can never be pa
 recorded after a month was approved show as "not approved" and can be approved separately. The old
 `payments` table is kept for old backups but is no longer used.
 
-### Check-in and late arrivals
+### Check-in, expected and actual pay
 
 The teacher taps **Check in** on the dashboard when they arrive (or types the arrival time in a
-session's dialog afterwards). Minutes after the scheduled start are late. The late-arrival rule on
-**Pay › Rates** decides what lateness costs: *deduct* (the default) takes off every late minute once
-the arrival is later than the grace period (default 0 minutes), at the hourly rate, or for a
-per-session rate the same share of the session; *record only* keeps the times without changing pay.
-An approved statement stores each session's late minutes and deduction, so later rule changes only
-affect months not yet approved, and a check-in on an approved statement cannot be changed. A session
-with a check-in cannot be cancelled or moved until the check-in is removed.
+session's dialog afterwards). A session counts as worked, and is paid, once it is checked in to or
+recorded as taught. Minutes after the scheduled start are late, and the late rule on **Pay › Rates**
+cuts that session's pay in steps. The default: up to 10 minutes late, no cut; more than 10, half;
+more than 30, the whole session. The highest step reached applies.
+
+Each pay month shows two figures. **Expected** is every session scheduled in the period that is not
+cancelled (holidays cancel sessions), at full rate and scheduled length, plus adjustments. **Actual**
+is what was worked, after late cuts, plus adjustments. An approved statement stores each session's
+late minutes and cut, so later rule changes only affect months not yet approved, and a check-in on an
+approved statement cannot be changed. A session with a check-in cannot be cancelled or moved until the
+check-in is removed.
 
 ## Attendance
 

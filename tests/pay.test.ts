@@ -8,7 +8,7 @@ import type { DB } from '../server/db.ts';
 import { createApp, createHolder } from '../server/app.ts';
 import { addAccount, type User } from '../server/auth.ts';
 import { approveMonth, markPaid, payLines, payOverview, unapprove } from '../server/services/pay.ts';
-import { lateDeduction, lateMinutes, payMonthOf, payPeriod } from '../shared/pay.ts';
+import { DEFAULT_LATE_RULE, lateCutPercent, lateDeduction, lateMinutes, payMonthOf, payPeriod, validLateRule } from '../shared/pay.ts';
 import { cancelSession, completeSession, reopenSession } from '../server/services/plan.ts';
 
 // Deterministic fixtures: sessions on fixed dates with known durations and rates.
@@ -265,44 +265,60 @@ describe('pay periods (16th of last month to 15th of this month by default)', ()
 });
 
 describe('teacher check-in and late arrivals', () => {
-  it('lateness is minutes after the start; the deduction follows the rate and grace period', () => {
-    const rate = (mode: 'hourly' | 'per_session', amount: number) => ({ id: 1, classId: null, courseId: null, mode, amount, effectiveFrom: '2026-01-01' as const });
+  it('lateness is minutes after the start; up to 10 min costs nothing, more cuts half, over 30 cuts everything', () => {
     expect(lateMinutes('13:00', '13:12')).toBe(12);
     expect(lateMinutes('13:00', '12:55')).toBe(0);
     expect(lateMinutes('13:00', null)).toBe(0);
-    expect(lateDeduction(rate('hourly', 12), 120, 10, { mode: 'deduct', graceMinutes: 0 })).toEqual({ minutes: 10, amount: 2 });
-    expect(lateDeduction(rate('per_session', 30), 120, 12, { mode: 'deduct', graceMinutes: 0 })).toEqual({ minutes: 12, amount: 3 });
-    expect(lateDeduction(rate('hourly', 12), 120, 5, { mode: 'deduct', graceMinutes: 5 })).toEqual({ minutes: 0, amount: 0 });
-    expect(lateDeduction(rate('hourly', 12), 120, 6, { mode: 'deduct', graceMinutes: 5 })).toEqual({ minutes: 6, amount: 1.2 });
-    expect(lateDeduction(rate('hourly', 12), 120, 30, { mode: 'none', graceMinutes: 0 })).toEqual({ minutes: 0, amount: 0 });
-    expect(lateDeduction(rate('hourly', 12), 60, 90, { mode: 'deduct', graceMinutes: 0 }).minutes).toBe(60);
+    const rule = DEFAULT_LATE_RULE;
+    expect([0, 5, 10, 11, 30, 31, 90].map((m) => lateCutPercent(m, rule))).toEqual([0, 0, 0, 50, 50, 100, 100]);
+    expect(lateDeduction(24, 15, rule)).toEqual({ percent: 50, amount: 12 });
+    expect(lateDeduction(24, 45, rule)).toEqual({ percent: 100, amount: 24 });
+    expect(lateDeduction(24, 45, { steps: [] })).toEqual({ percent: 0, amount: 0 });
+    expect(validLateRule({ steps: [{ afterMinutes: 30, cutPercent: 100 }, { afterMinutes: 10, cutPercent: 50 }] })).toEqual(rule);
+    expect(validLateRule({ steps: [{ afterMinutes: 10, cutPercent: 0 }] })).toBeNull();
+    expect(validLateRule({ steps: [{ afterMinutes: 10, cutPercent: 50 }, { afterMinutes: 10, cutPercent: 60 }] })).toBeNull();
   });
 
-  it('checking in late lowers the estimate, and an approved statement keeps the deduction', async () => {
+  it('a check-in counts the session as worked; arriving late cuts it; an approved statement keeps the cut', async () => {
     hourly(12);
-    const id = session(classA, '2026-10-20', '13:00', '15:00');
-    taught(id);
-    expect((await call('POST', `/sessions/${id}/checkin`, { time: '13:10' })).body).toMatchObject({ time: '13:10', source: 'manual', late: 10, deducted: true });
+    const id = session(classA, '2026-10-20', '13:00', '15:00'); // $24 in full; no teaching record
+    expect(payLines(db, u, '2026-10-01', '2026-10-31')).toHaveLength(0);
+    expect((await call('POST', `/sessions/${id}/checkin`, { time: '13:15' })).body).toMatchObject({ time: '13:15', source: 'manual', late: 15, cutPercent: 50 });
     const [line] = payLines(db, u, '2026-10-01', '2026-10-31');
-    expect(line).toMatchObject({ checkin: '13:10', late: 10, deduction: 2, amount: 22 });
-    expect(payOverview(db, u, '2026').months.find((m) => m.month === '2026-11')).toMatchObject({ lateSessions: 1, deductions: 2, estimated: 22 });
+    expect(line).toMatchObject({ recorded: false, checkin: '13:15', late: 15, minutes: 120, deduction: 12, amount: 12 });
+    expect(payOverview(db, u, '2026').unrecorded).toBe(0);
+    expect(payOverview(db, u, '2026').months.find((m) => m.month === '2026-11')).toMatchObject({ lateSessions: 1, deductions: 12, estimated: 12 });
 
     approveMonth(db, u, '2026-11'); // 20 Oct falls in the November pay period (16 Oct – 15 Nov)
     // Changing the rule later does not touch the approved month, and the check-in is locked.
-    expect((await call('PUT', '/settings', { lateRule: { mode: 'none', graceMinutes: 0 } })).status).toBe(200);
-    expect(payLines(db, u, '2026-10-01', '2026-10-31')[0]).toMatchObject({ late: 10, deduction: 2, amount: 22, statementStatus: 'approved' });
+    expect((await call('PUT', '/settings', { lateRule: { steps: [] } })).status).toBe(200);
+    expect(payLines(db, u, '2026-10-01', '2026-10-31')[0]).toMatchObject({ late: 15, deduction: 12, amount: 12, statementStatus: 'approved' });
     expect((await call('POST', `/sessions/${id}/checkin`, { time: '13:00' })).status).toBe(409);
     expect((await call('DELETE', `/sessions/${id}/checkin`)).status).toBe(409);
   });
 
-  it('the grace period and the record-only rule leave pay unchanged', async () => {
+  it('up to 10 minutes late is not cut; more than 30 leaves the session unpaid; the rule can be changed', async () => {
     hourly(12);
-    const id = session(classA, '2026-10-20', '13:00', '15:00');
-    taught(id);
-    await call('POST', `/sessions/${id}/checkin`, { time: '13:05' });
-    expect((await call('PUT', '/settings', { lateRule: { mode: 'deduct', graceMinutes: 5 } })).status).toBe(200);
-    expect(payLines(db, u, '2026-10-01', '2026-10-31')[0]).toMatchObject({ late: 5, deduction: 0, amount: 24 });
-    expect((await call('PUT', '/settings', { lateRule: { mode: 'deduct', graceMinutes: 500 } })).status).toBe(422);
+    const a = session(classA, '2026-10-19', '13:00', '15:00'), b = session(classA, '2026-10-20', '13:00', '15:00');
+    taught(a); taught(b);
+    await call('POST', `/sessions/${a}/checkin`, { time: '13:10' });
+    await call('POST', `/sessions/${b}/checkin`, { time: '13:31' });
+    expect(payLines(db, u, '2026-10-01', '2026-10-31').map((l) => [l.late, l.deduction, l.amount])).toEqual([[10, 0, 24], [31, 24, 0]]);
+    expect((await call('PUT', '/settings', { lateRule: { steps: [{ afterMinutes: 5, cutPercent: 25 }] } })).status).toBe(200);
+    expect(payLines(db, u, '2026-10-01', '2026-10-31').map((l) => l.amount)).toEqual([18, 18]);
+    expect((await call('PUT', '/settings', { lateRule: { steps: [{ afterMinutes: 5, cutPercent: 150 }] } })).status).toBe(422);
+  });
+
+  it('expected pay is every scheduled session at full rate; holidays and cancellations are left out', () => {
+    hourly(12);
+    taught(session(classA, '2026-10-19', '13:00', '15:00'));        // worked
+    session(classA, '2026-10-21', '13:00', '15:00');                 // past, not decided
+    session(classA, '2026-10-26', '13:00', '14:00');                 // ahead
+    cancelSession(db, u, session(classB, '2026-10-22', '13:00', '15:00'), 'holiday');
+    const m = payOverview(db, u, '2026').months.find((x) => x.month === '2026-11')!;
+    expect(m).toMatchObject({ scheduledSessions: 3, scheduledMinutes: 300, scheduledPay: 60, expectedTotal: 60, total: 24, expected: 12, plannedSessions: 1 });
+    db.run("INSERT INTO pay_adjustments (owner_id, month, amount, note) VALUES (?, '2026-11', 15, 'Invigilation')", u.id);
+    expect(payOverview(db, u, '2026').months.find((x) => x.month === '2026-11')).toMatchObject({ scheduledPay: 60, adjustments: 15, expectedTotal: 75, total: 39 });
   });
 
   it('tapping check-in works only on the day; typed times work for past sessions; future and cancelled sessions refuse', async () => {
