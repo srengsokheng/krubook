@@ -12,6 +12,7 @@ const km: Record<string, string> = {
   Students: 'និស្សិត',
   Pay: 'ម៉ោងបង្រៀន និងប្រាក់',
   Settings: 'ការកំណត់',
+  'Update from Excel': 'ធ្វើបច្ចុប្បន្នភាពពី Excel',
   'Sign out': 'ចាកចេញ',
   'Sign in': 'ចូលប្រើ',
   Email: 'អ៊ីមែល',

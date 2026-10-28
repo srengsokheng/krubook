@@ -173,6 +173,20 @@ lists the lesson files in `cpp/lessonNN` and `nodejs/lessonNN` as ready material
 so students get placeholder IDs such as `ASL3-07`. Edit them on each student's page. The data
 belongs to an unclaimed account; the first account created with `krubook-user add` claims it.
 
+### Updating from a newer copy of the workbook
+
+**Update from Excel** in the app takes the workbook as an upload (drag and drop). The server reads it
+into a scratch in-memory database, compares it with the signed-in teacher's classes and shows the
+changes; nothing is saved until **Apply**, which re-reads the same file and refuses if the result no
+longer matches the preview. It adds scores the app does not have, updates scores that changed in the
+workbook if nobody edited them in the app, and records sessions the workbook marks Completed that are
+still planned and not in the future. Everything else (scores edited in the app, students in only one
+place, attendance points the app now calculates from roll calls, other session differences) is listed
+and left alone. Rules: `server/services/merge.ts`. The same merge runs from the command line with
+`scripts/merge-scores.ts` (see `docs/OPERATIONS.md`). The workbook omits years, so its dates are read as
+Aug–Dec 2026 and Jan–Jul 2027; that mapping in `server/services/workbook.ts` needs updating for the next
+school year.
+
 ## Teaching pay
 
 Pay counts only sessions recorded as taught (a teaching record) in the teacher's own classes.
@@ -191,6 +205,24 @@ A month moves through three states:
 A session can appear on only one statement (unique index), so it can never be paid twice. Sessions
 recorded after a month was approved show as "not approved" and can be approved separately. The old
 `payments` table is kept for old backups but is no longer used.
+
+### Check-in and late arrivals
+
+The teacher taps **Check in** on the dashboard when they arrive (or types the arrival time in a
+session's dialog afterwards). Minutes after the scheduled start are late. The late-arrival rule on
+**Pay › Rates** decides what lateness costs: *deduct* (the default) takes off every late minute once
+the arrival is later than the grace period (default 0 minutes), at the hourly rate, or for a
+per-session rate the same share of the session; *record only* keeps the times without changing pay.
+An approved statement stores each session's late minutes and deduction, so later rule changes only
+affect months not yet approved, and a check-in on an approved statement cannot be changed. A session
+with a check-in cannot be cancelled or moved until the check-in is removed.
+
+## Attendance
+
+A roll call is one tick per student: ticked came, unticked did not. Once any student in a session is
+marked, everyone left unticked is saved as absent, so the record matches the screen; **Clear** removes
+the whole roll call. Sessions with no roll call are not counted. Late and excused marks from older
+records are still shown and scored by the class's attendance rule.
 
 ## Paging
 

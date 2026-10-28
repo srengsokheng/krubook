@@ -92,6 +92,34 @@ test.describe('signed in', () => {
     await expect(page.locator('.roll-row.unmarked')).toHaveCount(0);
   });
 
+  test('check-in: one tap on the dashboard records the arrival and survives a reload', async ({ page }) => {
+    await page.goto('/');
+    const button = page.getByRole('button', { name: 'Check in' }).first();
+    await expect(button).toBeVisible();
+    await button.click();
+    await expect(page.getByRole('button', { name: /^In \d\d:\d\d · / }).first()).toBeVisible();
+    await page.reload();
+    const badge = page.getByRole('button', { name: /^In \d\d:\d\d · / }).first();
+    await expect(badge).toBeVisible();
+    // Correct the time by hand, then remove it again.
+    await badge.click();
+    await page.locator('#ci-time').fill('08:05');
+    await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
+    await expect(page.getByRole('button', { name: 'In 08:05 · 5 min late' })).toBeVisible();
+    await page.getByRole('button', { name: 'In 08:05 · 5 min late' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Remove check-in' }).click();
+    await expect(page.getByRole('button', { name: 'Check in' }).first()).toBeVisible();
+  });
+
+  test('update from Excel: dropping a workbook previews the changes without saving', async ({ page }) => {
+    await page.goto('/import');
+    await page.getByLabel('Workbook file').setInputFiles('e2e-results/workbook.xlsx'); // written by e2e/server.ts
+    await expect(page.getByText('Scores to add')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Left as they are' })).toBeVisible();
+    await page.getByLabel('Workbook file').setInputFiles({ name: 'notes.xlsx', mimeType: 'application/octet-stream', buffer: Buffer.from('not a workbook') });
+    await expect(page.getByText(/could not be read as an Excel workbook/)).toBeVisible();
+  });
+
   test('gradebook: a valid score saves, an out-of-range score is refused', async ({ page }) => {
     await page.goto('/classes/1/grades');
     const cell = page.locator('input[aria-label$=" for 0230001"]').first();

@@ -5,7 +5,7 @@ const ROUTES = [
   '/', '/review', '/review#ids', '/timetable', '/classes',
   '/classes/1/plan', '/classes/1/attendance', '/classes/1/grades', '/classes/1/roster', '/classes/1/setup',
   '/courses', '/courses/1', '/terms', '/terms/1', '/students', '/students/1',
-  '/pay', '/pay#sessions', '/pay#rates', '/pay#adjustments',
+  '/pay', '/pay#sessions', '/pay#rates', '/pay#adjustments', '/import',
   '/settings', '/settings#holidays', '/settings#reminders', '/settings#backup', '/settings#activity',
   '/print/attendance/1', '/print/gradebook/1', '/print/plan/1',
 ];

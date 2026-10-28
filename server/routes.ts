@@ -12,6 +12,7 @@ import * as backup from './services/backup.ts';
 import * as pay from './services/pay.ts';
 import * as reconcile from './services/reconcile.ts';
 import * as checkin from './services/checkin.ts';
+import * as merge from './services/merge.ts';
 import { PAGE_SIZES, pageArray, paged, readPage, readSort } from './paging.ts';
 import { addDays, diffDays, isISODate, isTime, rangesOverlap, startOfWeek } from '../shared/dates.ts';
 import { findOverlaps, standardTemplate, type SessionRule } from '../shared/schedule.ts';
@@ -650,6 +651,9 @@ export function buildRouter(holder: DBHolder): Router {
   get('/classes/:id/attendance-migration', (req, db, u) => reconcile.attendancePreview(db, u, num(req.params.id, 'class')));
   post('/classes/:id/attendance-migration', (req, db, u) => reconcile.switchToCalculated(db, u, num(req.params.id, 'class'), req.body.enrollmentIds, req.body.confirm === true));
   post('/classes/:id/attendance-migration/restore', (req, db, u) => reconcile.restoreManual(db, u, num(req.params.id, 'class')));
+  // Upload the teaching workbook: preview what would change, then apply exactly that preview.
+  r.post('/workbook/preview', express.raw({ type: '*/*', limit: '15mb' }), wrap((req, db, u) => merge.previewWorkbook(db, u, req.body as Buffer)));
+  r.post('/workbook/apply', express.raw({ type: '*/*', limit: '15mb' }), wrap((req, db, u) => merge.applyWorkbook(db, u, req.body as Buffer, String(req.query.fingerprint ?? ''))));
   get('/backup/status', (_req, _db, u) => {
     if (u.role !== 'admin') throw new AppError(403, 'Only an administrator can see backup status.');
     return backupStatus();

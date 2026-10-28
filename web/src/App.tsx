@@ -23,7 +23,8 @@ const Pay = lazy(() => import('./pages/Pay.tsx').then((m) => ({ default: m.Pay }
 const Settings = lazy(() => import('./pages/Settings.tsx').then((m) => ({ default: m.Settings })));
 const PrintView = lazy(() => import('./pages/Print.tsx').then((m) => ({ default: m.PrintView })));
 const Review = lazy(() => import('./pages/Review.tsx').then((m) => ({ default: m.Review })));
-const PAGE_MODULES = [() => import('./pages/Dashboard.tsx'), () => import('./pages/Timetable.tsx'), () => import('./pages/Classes.tsx'), () => import('./pages/ClassDetail.tsx'), () => import('./pages/Courses.tsx'), () => import('./pages/Terms.tsx'), () => import('./pages/Students.tsx'), () => import('./pages/Pay.tsx'), () => import('./pages/Settings.tsx'), () => import('./pages/Print.tsx'), () => import('./pages/Review.tsx')];
+const ImportWorkbook = lazy(() => import('./pages/ImportWorkbook.tsx').then((m) => ({ default: m.ImportWorkbook })));
+const PAGE_MODULES = [() => import('./pages/Dashboard.tsx'), () => import('./pages/Timetable.tsx'), () => import('./pages/Classes.tsx'), () => import('./pages/ClassDetail.tsx'), () => import('./pages/Courses.tsx'), () => import('./pages/Terms.tsx'), () => import('./pages/Students.tsx'), () => import('./pages/Pay.tsx'), () => import('./pages/Settings.tsx'), () => import('./pages/Print.tsx'), () => import('./pages/Review.tsx'), () => import('./pages/ImportWorkbook.tsx')];
 /** After sign-in, fetch every page in the background so they open instantly and work offline. */
 function preloadPages() {
   const go = () => PAGE_MODULES.forEach((load) => load().catch(() => {}));
@@ -71,6 +72,7 @@ function Gate() {
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/review" element={<Review />} />
+          <Route path="/import" element={<ImportWorkbook />} />
           <Route path="/timetable" element={<Timetable />} />
           <Route path="/classes" element={<Classes />} />
           <Route path="/classes/:id/*" element={<ClassDetail />} />
@@ -99,6 +101,7 @@ const NAV: Array<[string, string, string]> = [
   ['/terms', 'Terms', 'term'],
   ['/pay', 'Pay', 'coins'],
   ['/review', 'Review', 'check'],
+  ['/import', 'Update from Excel', 'upload'],
   ['/settings', 'Settings', 'gear'],
 ];
 
@@ -139,7 +142,7 @@ function Shell({ me, onSignOut, children }: { me: Me; onSignOut: () => void; chi
         {children}
       </main>
       <nav className="bottom-nav" aria-label="Main">
-        {[NAV[0], NAV[1], NAV[2], NAV[3], NAV[8]].map(([to, label, icon]) => <NavLink key={to} to={to} end={to === '/'}><Icon name={icon} />{t(label)}</NavLink>)}
+        {[NAV[0], NAV[1], NAV[2], NAV[3], NAV[9]].map(([to, label, icon]) => <NavLink key={to} to={to} end={to === '/'}><Icon name={icon} />{t(label)}</NavLink>)}
       </nav>
     </div>
   );

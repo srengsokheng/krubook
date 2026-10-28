@@ -9,7 +9,7 @@ export class ApiError extends Error {
 export async function api<T = any>(path: string, opts: { method?: string; body?: unknown; raw?: BodyInit; headers?: Record<string, string> } = {}): Promise<T> {
   let res: Response;
   // Fail instead of hanging forever on a stalled connection; exports and restores get longer.
-  const timeout = AbortSignal.timeout(/^\/(export|restore|backup|import)/.test(path) ? 180_000 : 30_000);
+  const timeout = AbortSignal.timeout(/^\/(export|restore|backup|import|workbook)/.test(path) ? 180_000 : 30_000);
   try {
     res = await fetch(`/api${path}`, {
       signal: timeout,

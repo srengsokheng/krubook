@@ -53,8 +53,11 @@ go-ahead. Until then, migrations are tested by restoring a production backup on 
 
 ## Updating from the Excel workbook
 
-The workbook import builds a new database, so never run it against the live one. To bring in new scores
-from an updated workbook, import it into a scratch file and merge only the scores the app does not have:
+Normally: open **Update from Excel** in the app, drop the workbook, check the preview and apply. No server
+access is needed, and nothing is saved until you apply.
+
+The same merge can run on the server. The workbook import builds a new database, so never run it against
+the live one; import into a scratch file and merge from there:
 
 ```bash
 npx tsx server/import-workbook.ts Teaching_Schedule_and_Progress.xlsx --db /tmp/new.sqlite
@@ -64,5 +67,6 @@ sudo -u krubook npx tsx scripts/merge-scores.ts /tmp/new.sqlite /var/lib/krubook
 rm /tmp/new.sqlite
 ```
 
-Scores already in the app are never overwritten (differences are listed for you to fix in the gradebook),
-and running it twice adds nothing. Student, session and teaching-record differences are listed, not applied.
+Scores edited in the app are never overwritten (differences are listed for you to fix in the gradebook),
+and running it twice changes nothing. New scores are added, scores changed only in the workbook are
+updated, and weeks marked Completed are recorded as taught; other differences are listed, not applied.
