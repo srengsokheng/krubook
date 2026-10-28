@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from './api.ts';
+import { api, useApi } from './api.ts';
+import { CheckIn } from './CheckIn.tsx';
 import { D, Dialog, Field, Kind, Notice, SessionStatus, useAction } from './ui.tsx';
 import { ProposalReview, type Proposal } from './Proposal.tsx';
 
@@ -81,6 +82,7 @@ export function SessionDialog({ session, today, onClose, onChanged }: { session:
         {session.moved_from_id && <div className="faint small">Moved here from another date. The original session is kept as “moved”.</div>}
         {session.is_makeup ? <div className="faint small">Make-up session</div> : null}
       </div>
+      {mode === 'view' && (session.status === 'planned' || session.status === 'completed') && session.date <= today && <Arrival sessionId={session.id} start={start} date={session.date} today={today} onChanged={onChanged} />}
       {overlaps.length > 0 && <Notice tone="warn">Double-booked with {overlaps.map((o) => `${o.code} ${o.start}–${o.end}`).join(', ')}.</Notice>}
 
       {mode === 'view' && session.status === 'planned' && (
@@ -110,5 +112,16 @@ export function SessionDialog({ session, today, onClose, onChanged }: { session:
         </div>
       )}
     </Dialog>
+  );
+}
+
+function Arrival({ sessionId, start, date, today, onChanged }: { sessionId: number; start: string; date: string; today: string; onChanged: () => void }) {
+  const { data } = useApi<any>(`/sessions/${sessionId}/checkin`);
+  if (!data) return null;
+  return (
+    <div className="row" style={{ gap: 8 }}>
+      <span className="small muted">Your arrival:</span>
+      <CheckIn sessionId={sessionId} start={start} date={date} today={today} value={data.time ? data : null} onChanged={onChanged} />
+    </div>
   );
 }

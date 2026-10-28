@@ -3,6 +3,7 @@ import { useApi } from '../api.ts';
 import { useI18n } from '../i18n.tsx';
 import { D, Empty, ErrorNote, Icon, Kind, Loading, MaterialStatus, money, PayMonth, plural, ProgressPill, SessionStatus } from '../ui.tsx';
 import { formatDate } from '../../../shared/dates.ts';
+import { CheckIn } from '../CheckIn.tsx';
 
 const partLabel = (p: any) => (p ? `${p.code} ${p.title ?? ''}` : null);
 
@@ -50,7 +51,10 @@ export function Dashboard() {
                       <div className="small muted">{s.part ? partLabel(s.part) : s.note ?? s.activity.replace('_', ' ')}</div>
                       {s.materials.some((x: any) => x.status !== 'ready') && <div className="row small">{s.materials.filter((x: any) => x.status !== 'ready').map((x: any) => <span key={x.id} className="row" style={{ gap: 4 }}>{x.title} <MaterialStatus status={x.status} /></span>)}</div>}
                     </div>
-                    {s.status === 'planned' && <Link className="btn sm" to={`/classes/${s.classId}/plan?session=${s.id}`}>{t('Mark taught')}</Link>}
+                    <div className="row" style={{ gap: 6, justifyContent: 'flex-end' }}>
+                      {(s.status === 'planned' || s.status === 'completed') && <CheckIn sessionId={s.id} start={s.start} date={s.date} today={d.today} value={s.checkin} />}
+                      {s.status === 'planned' && <Link className="btn sm" to={`/classes/${s.classId}/plan?session=${s.id}`}>{t('Mark taught')}</Link>}
+                    </div>
                   </li>
                 ))}
               </ul>

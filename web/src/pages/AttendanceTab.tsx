@@ -3,11 +3,9 @@ import { usePref } from '../prefs.ts';
 import { Link, useSearchParams } from 'react-router-dom';
 import { download, isOfflineCopy, useApi } from '../api.ts';
 import { useI18n } from '../i18n.tsx';
-import { Empty, ErrorNote, Icon, Kind, Loading, Notice, Pager, fmt, useDebounced, useToast } from '../ui.tsx';
+import { Confirm, Empty, ErrorNote, Icon, Kind, Loading, Notice, Pager, fmt, useDebounced, useToast } from '../ui.tsx';
 import { enqueue, onApplied, pendingOps } from '../offline.ts';
 import { formatDate } from '../../../shared/dates.ts';
-
-const MARKS = [['present', 'P'], ['late', 'L'], ['absent', 'A'], ['excused', 'E']] as const;
 
 export function AttendanceTab({ cls }: { cls: any }) {
   const { t, lang } = useI18n();
@@ -35,17 +33,23 @@ export function AttendanceTab({ cls }: { cls: any }) {
         </div>
       </div>
       {view === 'roll' ? (chosen ? <Roll sessionId={chosen} cls={cls} /> : <div className="panel"><Empty title="No sessions have taken place yet">Attendance opens on the day of each session. Cancelled sessions never count as absences.</Empty></div>) : <Summary cls={cls} />}
-      {view === 'roll' && <p className="faint xs">{t('Attendance')} is saved on this device first, so it works without a connection. Sessions without a roll call are not counted as absences.</p>}
+      {view === 'roll' && <p className="faint xs">{t('Attendance')} is saved on this device first, so it works without a connection. Ticked students came; once a roll call is started, everyone left unticked counts as absent. Sessions without a roll call are not counted.</p>}
     </div>
   );
 }
 
+// A roll call is one tick per student: ticked came, unticked did not. Once a roll call is started
+// (any student marked), every student left unticked is saved as absent, so the record matches what
+// is on screen. Late and excused marks from earlier records are still shown and counted.
+const CAME = new Set(['present', 'late']);
+
 function Roll({ sessionId, cls }: { sessionId: number; cls: any }) {
-  const { t, lang } = useI18n();
+  const { lang } = useI18n();
   const toast = useToast();
   const { data, error, loading, reload } = useApi<any>(`/sessions/${sessionId}/attendance`);
   const [marks, setMarks] = useState<Record<number, { status: string | null; version: number | null; pending?: boolean }>>({});
   const [q, setQ] = useState('');
+  const [clearing, setClearing] = useState(false);
 
   useEffect(() => {
     if (!data) return;
@@ -72,18 +76,27 @@ function Roll({ sessionId, cls }: { sessionId: number; cls: any }) {
   if (loading && !data) return <Loading rows={8} />;
   if (!data) return null;
   const roster = data.roster.filter((r: any) => !q || r.code.includes(q) || (r.nameLatin ?? '').toLowerCase().includes(q.toLowerCase()) || (r.nameKm ?? '').includes(q));
-  const set = (ids: number[], status: string | null) => {
-    const ops = ids.filter((id) => marks[id]?.status !== status).map((id) => {
+  const active = data.roster.filter((r: any) => r.enrollmentStatus === 'active');
+  const unmarked = active.filter((r: any) => !marks[r.enrollmentId]?.status).map((r: any) => r.enrollmentId as number);
+  const set = (changes: Array<[number, string | null]>) => {
+    const ops = changes.filter(([id, status]) => marks[id]?.status !== status).map(([id, status]) => {
       const r = data.roster.find((x: any) => x.enrollmentId === id);
       return { type: 'attendance' as const, sessionId, enrollmentId: id, status, baseVersion: marks[id]?.version ?? null, label: `${cls.code} ${formatDate(data.session.date)} ${r.code}` };
     });
     if (!ops.length) return;
-    setMarks((m) => { const n = { ...m }; for (const o of ops) n[o.enrollmentId] = { ...n[o.enrollmentId], status, pending: true }; return n; });
+    setMarks((m) => { const n = { ...m }; for (const o of ops) n[o.enrollmentId] = { ...n[o.enrollmentId], status: o.status, pending: true }; return n; });
     void enqueue(ops);
   };
-  const counts = { present: 0, late: 0, absent: 0, excused: 0, unmarked: 0 } as Record<string, number>;
-  for (const r of data.roster) counts[marks[r.enrollmentId]?.status ?? 'unmarked']++;
-  const unmarked = data.roster.filter((r: any) => !marks[r.enrollmentId]?.status && r.enrollmentStatus === 'active').map((r: any) => r.enrollmentId);
+  const toggle = (id: number) => {
+    const next = CAME.has(marks[id]?.status ?? '') ? 'absent' : 'present';
+    set([[id, next], ...unmarked.filter((x: number) => x !== id).map((x: number): [number, string] => [x, 'absent'])]);
+  };
+  const counts = { came: 0, absent: 0, excused: 0, unmarked: 0 };
+  for (const r of data.roster) {
+    const s = marks[r.enrollmentId]?.status;
+    if (!s) { if (r.enrollmentStatus === 'active') counts.unmarked++; } else if (CAME.has(s)) counts.came++; else if (s === 'excused') counts.excused++; else counts.absent++;
+  }
+  const started = counts.came + counts.absent + counts.excused > 0;
 
   return (
     <section className="panel">
@@ -91,34 +104,40 @@ function Roll({ sessionId, cls }: { sessionId: number; cls: any }) {
         <div>
           <h2 className="row"><span>{formatDate(data.session.date, lang, true)}</span><span className="mono small muted">{data.session.start}–{data.session.end}</span><Kind kind={data.session.kind} /></h2>
           <div className="row small muted" style={{ gap: 12, marginTop: 4 }}>
-            {MARKS.map(([k, s]) => <span key={k}><b className="mono">{counts[k]}</b> {t(k)}</span>)}<span><b className="mono">{counts.unmarked}</b> not marked</span>
+            {started ? <>
+              <span><b className="mono">{counts.came}</b> came</span>
+              <span><b className="mono">{counts.absent}</b> absent</span>
+              {counts.excused > 0 && <span><b className="mono">{counts.excused}</b> excused</span>}
+              {counts.unmarked > 0 && <span><b className="mono">{counts.unmarked}</b> not marked</span>}
+            </> : <span>Roll call not taken yet. Tick the students who came.</span>}
           </div>
         </div>
         <div className="row">
           <div className="search" style={{ minWidth: 160 }}><Icon name="search" /><input aria-label="Find student" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find" /></div>
-          <button className="btn primary" disabled={!data.editable || !unmarked.length} onClick={() => { set(unmarked, 'present'); toast(`${unmarked.length} marked present. Tap anyone who was late or absent.`); }}><Icon name="check" />{t('Mark everyone present')}</button>
+          {started && <button className="btn ghost" disabled={!data.editable} onClick={() => setClearing(true)}>Clear</button>}
+          <button className="btn primary" disabled={!data.editable || !unmarked.length} onClick={() => { set(unmarked.map((id: number): [number, string] => [id, 'present'])); toast(`${unmarked.length} ticked. Untick anyone who did not come.`); }}><Icon name="check" />{started ? 'Tick the rest' : 'Everyone came'}</button>
         </div>
       </div>
-      {isOfflineCopy(data) && <div className="panel-body"><Notice tone="warn">Offline: showing the roll as last loaded. Marks are saved on this device and sync later.</Notice></div>}
+      {isOfflineCopy(data) && <div className="panel-body"><Notice tone="warn">Offline: showing the roll as last loaded. Ticks are saved on this device and sync later.</Notice></div>}
       {!data.editable && <div className="panel-body"><Notice tone="info">{data.reason}</Notice></div>}
       <div className="roll">
         {roster.map((r: any) => {
           const m = marks[r.enrollmentId];
+          const came = CAME.has(m?.status ?? '');
+          const state = !m?.status ? 'unmarked' : came ? 'came' : 'away';
           return (
-            <div key={r.enrollmentId} className="roll-row">
-              <div className="who">
-                <div>{r.nameKm ?? r.nameLatin}{m?.pending && <span className="faint xs"> · saving</span>}</div>
-                <div className="faint xs mono">{r.code} {r.nameKm && <span style={{ fontFamily: 'var(--font-body)' }}>{r.nameLatin}</span>}{r.enrollmentStatus !== 'active' && ` · ${r.enrollmentStatus}`}</div>
-              </div>
-              <div className="marks" role="radiogroup" aria-label={`Attendance for ${r.code}`}>
-                {MARKS.map(([k, s]) => (
-                  <button key={k} role="radio" aria-checked={m?.status === k} title={t(k)} className={`${k} ${m?.status === k ? 'on' : ''}`} disabled={!data.editable} onClick={() => set([r.enrollmentId], m?.status === k ? null : k)}>{s}</button>
-                ))}
-              </div>
-            </div>
+            <button key={r.enrollmentId} type="button" role="checkbox" aria-checked={came} aria-label={`${r.code} ${r.nameLatin ?? r.nameKm ?? ''}`} className={`roll-row tick ${state}`} disabled={!data.editable} onClick={() => toggle(r.enrollmentId)}>
+              <span className="box" aria-hidden="true">{came ? <Icon name="check" /> : state === 'away' ? <Icon name="x" /> : null}</span>
+              <span className="who">
+                <span>{r.nameKm ?? r.nameLatin}{m?.pending && <span className="faint xs"> · saving</span>}</span>
+                <span className="faint xs mono">{r.code} {r.nameKm && <span style={{ fontFamily: 'var(--font-body)' }}>{r.nameLatin}</span>}{r.enrollmentStatus !== 'active' && ` · ${r.enrollmentStatus}`}</span>
+              </span>
+              {(m?.status === 'late' || m?.status === 'excused') && <span className="pill">{m.status}</span>}
+            </button>
           );
         })}
       </div>
+      {clearing && <Confirm title="Clear this roll call?" body="Every tick and absence for this session is removed. The session then counts as having no roll call." confirmLabel="Clear roll call" danger onConfirm={() => { set(data.roster.filter((r: any) => marks[r.enrollmentId]?.status).map((r: any): [number, null] => [r.enrollmentId, null])); toast('Roll call cleared'); }} onClose={() => setClearing(false)} />}
     </section>
   );
 }

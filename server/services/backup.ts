@@ -10,7 +10,7 @@ import { AppError, DB, type Row } from '../db.ts';
 /** Insert order respects foreign keys. */
 export const BACKUP_TABLES = [
   'users', 'settings', 'courses', 'lessons', 'lesson_parts', 'materials', 'template_weeks', 'terms', 'holidays',
-  'classes', 'meetings', 'sessions', 'teaching_records', 'record_parts', 'schedule_proposals', 'students', 'enrollments',
+  'classes', 'meetings', 'sessions', 'teaching_records', 'checkins', 'record_parts', 'schedule_proposals', 'students', 'enrollments',
   'grade_configs', 'grade_components', 'scores', 'score_archive', 'attendance', 'rates', 'pay_statements', 'pay_statement_lines', 'pay_adjustments', 'payments', 'notification_log', 'audit_log',
 ] as const;
 

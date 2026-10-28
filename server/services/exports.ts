@@ -183,22 +183,25 @@ export async function payXlsx(db: DB, u: User, year: string): Promise<Buffer> {
     { header: 'Sessions taught', key: 'n', width: 14 },
     { header: 'Hours taught', key: 'h', width: 12, style: { numFmt: '0.00' } },
     { header: 'Make-up sessions', key: 'mk', width: 15 },
+    { header: 'Late arrivals', key: 'late', width: 12 },
+    { header: 'Late deductions', key: 'ded', width: 14, style: { numFmt: '#,##0.00' } },
     { header: `Estimated (${p.currency})`, key: 'est', width: 15, style: { numFmt: '#,##0.00' } },
     { header: 'Approved', key: 'appr', width: 12, style: { numFmt: '#,##0.00' } },
     { header: 'Paid', key: 'paid', width: 12, style: { numFmt: '#,##0.00' } },
     { header: 'Month total', key: 'total', width: 13, style: { numFmt: '#,##0.00' } },
     { header: 'Expected (planned)', key: 'exp', width: 17, style: { numFmt: '#,##0.00' } },
   ]);
-  for (const m of p.months) addRow(ws, { month: m.month, from: m.from, to: m.to, n: m.taughtSessions, h: m.taughtMinutes / 60, mk: m.makeupSessions, est: m.estimated, appr: m.approved, paid: m.paid, total: m.total, exp: m.expected });
+  for (const m of p.months) addRow(ws, { month: m.month, from: m.from, to: m.to, n: m.taughtSessions, h: m.taughtMinutes / 60, mk: m.makeupSessions, late: m.lateSessions, ded: m.deductions, est: m.estimated, appr: m.approved, paid: m.paid, total: m.total, exp: m.expected });
   const det = wb.addWorksheet('Sessions');
   det.columns = [
     { header: 'Date', key: 'date', width: 12, style: { numFmt: 'yyyy-mm-dd' } }, { header: 'Pay month', key: 'pm', width: 10 }, { header: 'Start', key: 'start', width: 7 }, { header: 'Class', key: 'code', width: 10 },
     { header: 'Course', key: 'course', width: 24 }, { header: 'Minutes', key: 'min', width: 9 }, { header: 'Make-up', key: 'mk', width: 9 }, { header: 'Rate', key: 'rate', width: 14 },
+    { header: 'Checked in', key: 'in', width: 11 }, { header: 'Late (min)', key: 'late', width: 10 }, { header: 'Late deduction', key: 'ded', width: 14, style: { numFmt: '#,##0.00' } },
     { header: 'Amount', key: 'amt', width: 10, style: { numFmt: '#,##0.00' } }, { header: 'Status', key: 'st', width: 11 },
   ];
   det.getRow(1).font = { bold: true };
   const first = p.months[0], last = p.months[p.months.length - 1];
-  for (const l of first ? payLines(db, u, first.from, last.to) : []) det.addRow({ date: asDate(l.date), pm: payMonthOf(l.date, p.payStartDay), start: l.start, code: l.code, course: l.courseName, min: l.minutes, mk: l.isMakeup ? 'yes' : '', rate: l.rate ?? 'no rate set', amt: l.amount, st: l.statementStatus ?? 'estimated' });
+  for (const l of first ? payLines(db, u, first.from, last.to) : []) det.addRow({ date: asDate(l.date), pm: payMonthOf(l.date, p.payStartDay), start: l.start, code: l.code, course: l.courseName, min: l.minutes, mk: l.isMakeup ? 'yes' : '', rate: l.rate ?? 'no rate set', in: l.checkin ?? '', late: l.late || '', ded: l.deduction || '', amt: l.amount, st: l.statementStatus ?? 'estimated' });
   const st = wb.addWorksheet('Statements');
   st.columns = [{ header: 'Month', key: 'month', width: 10 }, { header: 'Status', key: 'status', width: 10 }, { header: 'Sessions', key: 'sessions', width: 9 }, { header: 'Total', key: 'total', width: 12, style: { numFmt: '#,##0.00' } }, { header: 'Paid on', key: 'paidOn', width: 12 }, { header: 'Paid amount', key: 'paidAmount', width: 12, style: { numFmt: '#,##0.00' } }];
   st.getRow(1).font = { bold: true };

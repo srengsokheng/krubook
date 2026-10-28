@@ -11,6 +11,7 @@ import * as exportsSvc from './services/exports.ts';
 import * as backup from './services/backup.ts';
 import * as pay from './services/pay.ts';
 import * as reconcile from './services/reconcile.ts';
+import * as checkin from './services/checkin.ts';
 import { PAGE_SIZES, pageArray, paged, readPage, readSort } from './paging.ts';
 import { addDays, diffDays, isISODate, isTime, rangesOverlap, startOfWeek } from '../shared/dates.ts';
 import { findOverlaps, standardTemplate, type SessionRule } from '../shared/schedule.ts';
@@ -166,6 +167,7 @@ export function buildRouter(holder: DBHolder): Router {
     hasTelegramToken: !!getSetting(db, u.id, 'notify.telegramToken', ''),
     statusLabels: JSON.parse(getSetting(db, u.id, 'statusLabels', '{}')),
     payPeriodStart: payStartDay(db, u),
+    lateRule: pay.loadLateRule(db, u.id),
     today: today(db, u),
   }));
   put('/settings', (req, db, u) => {
@@ -187,6 +189,14 @@ export function buildRouter(holder: DBHolder): Router {
         throw new AppError(409, 'Pay months are already approved with the current pay period. Undo those approvals before changing it.');
       }
       setSetting(db, u.id, 'pay.periodStart', String(n));
+    }
+    if (b.lateRule !== undefined) {
+      const mode = b.lateRule?.mode, grace = Number(b.lateRule?.graceMinutes);
+      if (mode !== 'deduct' && mode !== 'none') throw new AppError(422, 'Choose whether late arrivals are deducted.');
+      if (!Number.isInteger(grace) || grace < 0 || grace > 120) throw new AppError(422, 'The grace period must be 0 to 120 minutes.');
+      const before = pay.loadLateRule(db, u.id);
+      setSetting(db, u.id, 'pay.lateRule', JSON.stringify({ mode, graceMinutes: grace }));
+      db.audit(u.id, 'setting', null, 'pay.lateRule', before, { mode, graceMinutes: grace });
     }
     return { ok: true };
   });
@@ -505,6 +515,9 @@ export function buildRouter(holder: DBHolder): Router {
     if (sess.gen_key || sess.moved_from_id) throw new AppError(409, 'Only make-up or extra sessions you added can be deleted. Cancel planned sessions instead.');
     db.tx(() => { db.run('DELETE FROM sessions WHERE id = ?', sess.id); db.audit(u.id, 'session', sess.id, 'delete', sess); });
   });
+  get('/sessions/:id/checkin', (req, db, u) => checkin.getCheckIn(db, u, num(req.params.id, 'session')));
+  post('/sessions/:id/checkin', (req, db, u) => checkin.checkIn(db, u, num(req.params.id, 'session'), req.body ?? {}));
+  del('/sessions/:id/checkin', (req, db, u) => checkin.clearCheckIn(db, u, num(req.params.id, 'session')));
   post('/sessions/:id/reopen', (req, db, u) => plan.reopenSession(db, u, num(req.params.id, 'session')));
   get('/sessions/:id/history', (req, db, u) => {
     const s = ownSession(db, u, num(req.params.id, 'session'));

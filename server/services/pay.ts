@@ -1,8 +1,8 @@
 import { AppError, type DB, type Row } from '../db.ts';
 import type { User } from '../auth.ts';
-import { ownClass, ownCourse, payStartDay, today } from './access.ts';
+import { getSetting, ownClass, ownCourse, payStartDay, today } from './access.ts';
 import { durationMinutes, isISODate } from '../../shared/dates.ts';
-import { payMonthOf, payPeriod, resolveRate, sessionPay, type Rate } from '../../shared/pay.ts';
+import { lateDeduction, lateMinutes, parseLateRule, payMonthOf, payPeriod, resolveRate, sessionPay, type LateRule, type Rate } from '../../shared/pay.ts';
 
 // Pay is personal: it always covers the signed-in teacher's own classes, even for admins.
 //
@@ -15,6 +15,8 @@ import { payMonthOf, payPeriod, resolveRate, sessionPay, type Rate } from '../..
 //   paid       the statement is marked paid; it can no longer be undone
 // Cancelled sessions and sessions without a teaching record are never payable. Make-up sessions
 // are payable like any other taught session. Each session can be on one statement only.
+// A check-in after the scheduled start is late; the late rule (Settings) decides whether, and how
+// much, is deducted. Approved statements keep the lateness and deduction they were approved with.
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -23,6 +25,10 @@ export function loadRates(db: DB, ownerId: number, includeInactive = false): Arr
   return db.all(`SELECT * FROM rates WHERE owner_id = ? ${includeInactive ? '' : 'AND active = 1'} ORDER BY effective_from, id`, ownerId).map((r) => ({
     id: r.id, classId: r.class_id, courseId: r.course_id, mode: r.mode, amount: r.amount, effectiveFrom: r.effective_from, currency: r.currency, active: !!r.active,
   }));
+}
+
+export function loadLateRule(db: DB, ownerId: number): LateRule {
+  return parseLateRule(getSetting(db, ownerId, 'pay.lateRule', ''));
 }
 
 export interface PayLine {
@@ -35,6 +41,9 @@ export interface PayLine {
   minutes: number;
   isMakeup: boolean;
   rate: string | null;
+  checkin: string | null; // HH:MM the teacher checked in, if they did
+  late: number;           // minutes after the scheduled start
+  deduction: number;      // taken off for arriving late (already subtracted from amount)
   amount: number;
   statementId: number | null;
   statementStatus: 'approved' | 'paid' | null;
@@ -45,13 +54,15 @@ const rateLabel = (mode: string | null, amount: number | null) => (mode == null 
 /** Taught sessions in a period, priced from their statement if approved, else with current rates. */
 export function payLines(db: DB, u: User, from: string, to: string): PayLine[] {
   const rates = loadRates(db, u.id);
+  const rule = loadLateRule(db, u.id);
   const rows = db.all(
-    `SELECT s.id, s.class_id, s.date, s.start_time, s.is_makeup, c.code, c.course_id, co.name AS course_name, r.minutes,
-            l.statement_id, l.minutes AS line_minutes, l.rate_mode, l.rate_amount, l.amount AS line_amount, ps.status AS statement_status
+    `SELECT s.id, s.class_id, s.date, s.start_time, s.end_time, s.is_makeup, c.code, c.course_id, co.name AS course_name, r.minutes, k.time AS checkin,
+            l.statement_id, l.minutes AS line_minutes, l.rate_mode, l.rate_amount, l.amount AS line_amount, l.late_minutes, l.deduction AS line_deduction, ps.status AS statement_status
        FROM teaching_records r
        JOIN sessions s ON s.id = r.session_id
        JOIN classes c ON c.id = s.class_id
        JOIN courses co ON co.id = c.course_id
+       LEFT JOIN checkins k ON k.session_id = s.id
        LEFT JOIN pay_statement_lines l ON l.session_id = s.id
        LEFT JOIN pay_statements ps ON ps.id = l.statement_id
       WHERE c.teacher_id = ? AND s.status = 'completed' AND s.date BETWEEN ? AND ?
@@ -60,10 +71,12 @@ export function payLines(db: DB, u: User, from: string, to: string): PayLine[] {
   );
   return rows.map((x) => {
     if (x.statement_id) {
-      return { sessionId: x.id, date: x.date, start: x.start_time, classId: x.class_id, code: x.code, courseName: x.course_name, minutes: x.line_minutes, isMakeup: !!x.is_makeup, rate: rateLabel(x.rate_mode, x.rate_amount), amount: x.line_amount, statementId: x.statement_id, statementStatus: x.statement_status };
+      return { sessionId: x.id, date: x.date, start: x.start_time, classId: x.class_id, code: x.code, courseName: x.course_name, minutes: x.line_minutes, isMakeup: !!x.is_makeup, rate: rateLabel(x.rate_mode, x.rate_amount), checkin: x.checkin, late: x.late_minutes, deduction: x.line_deduction, amount: x.line_amount, statementId: x.statement_id, statementStatus: x.statement_status };
     }
     const rate = resolveRate(rates, { classId: x.class_id, courseId: x.course_id, date: x.date });
-    return { sessionId: x.id, date: x.date, start: x.start_time, classId: x.class_id, code: x.code, courseName: x.course_name, minutes: x.minutes, isMakeup: !!x.is_makeup, rate: rate ? rateLabel(rate.mode, rate.amount) : null, amount: sessionPay(rate, x.minutes), statementId: null, statementStatus: null };
+    const late = lateMinutes(x.start_time, x.checkin);
+    const cut = lateDeduction(rate, durationMinutes(x.start_time, x.end_time), late, rule);
+    return { sessionId: x.id, date: x.date, start: x.start_time, classId: x.class_id, code: x.code, courseName: x.course_name, minutes: x.minutes, isMakeup: !!x.is_makeup, rate: rate ? rateLabel(rate.mode, rate.amount) : null, checkin: x.checkin, late, deduction: cut.amount, amount: r2(Math.max(0, sessionPay(rate, x.minutes) - cut.amount)), statementId: null, statementStatus: null };
   });
 }
 
@@ -75,6 +88,8 @@ export interface MonthSummary {
   taughtMinutes: number;
   makeupSessions: number;
   unratedSessions: number;
+  lateSessions: number;   // taught sessions checked in after the scheduled start
+  deductions: number;     // taken off for late arrivals
   estimated: number;      // not yet on any statement (sessions + loose adjustments)
   approved: number;       // on approved statements, not yet paid
   paid: number;           // amount actually recorded as paid
@@ -92,7 +107,7 @@ export function payOverview(db: DB, u: User, year: string) {
   const rates = loadRates(db, u.id);
   const months = new Map<string, MonthSummary>();
   const get = (m: string) => {
-    if (!months.has(m)) months.set(m, { month: m, ...payPeriod(m, sd), taughtSessions: 0, taughtMinutes: 0, makeupSessions: 0, unratedSessions: 0, estimated: 0, approved: 0, paid: 0, total: 0, expected: 0, plannedSessions: 0 });
+    if (!months.has(m)) months.set(m, { month: m, ...payPeriod(m, sd), taughtSessions: 0, taughtMinutes: 0, makeupSessions: 0, unratedSessions: 0, lateSessions: 0, deductions: 0, estimated: 0, approved: 0, paid: 0, total: 0, expected: 0, plannedSessions: 0 });
     return months.get(m)!;
   };
   for (const l of lines) {
@@ -101,6 +116,8 @@ export function payOverview(db: DB, u: User, year: string) {
     m.taughtMinutes += l.minutes;
     if (l.isMakeup) m.makeupSessions++;
     if (l.rate == null) m.unratedSessions++;
+    if (l.late > 0) m.lateSessions++;
+    m.deductions += l.deduction;
     if (!l.statementId) m.estimated += l.amount;
   }
   const adjustments = db.all('SELECT * FROM pay_adjustments WHERE owner_id = ? AND substr(month, 1, 4) = ? ORDER BY month, id', u.id, year);
@@ -127,7 +144,7 @@ export function payOverview(db: DB, u: User, year: string) {
     `SELECT COUNT(*) AS n FROM sessions s JOIN classes c ON c.id = s.class_id WHERE c.teacher_id = ? AND s.status = 'planned' AND s.date < ? AND s.date BETWEEN ? AND ?`,
     u.id, now, from, to,
   ) as Row).n;
-  const list = [...months.values()].map((m) => ({ ...m, estimated: r2(m.estimated), approved: r2(m.approved), paid: r2(m.paid), expected: r2(m.expected), total: r2(m.total + m.estimated) })).sort((a, b) => a.month.localeCompare(b.month));
+  const list = [...months.values()].map((m) => ({ ...m, estimated: r2(m.estimated), deductions: r2(m.deductions), approved: r2(m.approved), paid: r2(m.paid), expected: r2(m.expected), total: r2(m.total + m.estimated) })).sort((a, b) => a.month.localeCompare(b.month));
   const sum = (k: keyof MonthSummary) => r2(list.reduce((s, m) => s + (m[k] as number), 0));
   return {
     year,
@@ -135,9 +152,10 @@ export function payOverview(db: DB, u: User, year: string) {
     currentMonth: payMonthOf(now, sd),
     currency: rates[0]?.currency ?? 'USD',
     months: list,
-    totals: { taughtSessions: sum('taughtSessions'), taughtMinutes: sum('taughtMinutes'), estimated: sum('estimated'), approved: sum('approved'), paid: sum('paid'), total: sum('total'), expected: sum('expected') },
+    totals: { taughtSessions: sum('taughtSessions'), taughtMinutes: sum('taughtMinutes'), lateSessions: sum('lateSessions'), deductions: sum('deductions'), estimated: sum('estimated'), approved: sum('approved'), paid: sum('paid'), total: sum('total'), expected: sum('expected') },
     statements: statements.map(statementOut),
     rates: loadRates(db, u.id, true),
+    lateRule: loadLateRule(db, u.id),
     adjustments: adjustments.map((a) => ({ id: a.id, month: a.month, amount: a.amount, note: a.note, locked: !!a.statement_id })),
     unrecorded,
     unrated: list.reduce((s, m) => s + m.unratedSessions, 0),
@@ -172,7 +190,7 @@ export function approveMonth(db: DB, u: User, month: string, note?: string) {
     for (const l of lines) {
       const s = db.get('SELECT s.class_id, c.course_id FROM sessions s JOIN classes c ON c.id = s.class_id WHERE s.id = ?', l.sessionId)!;
       const rate = resolveRate(rates, { classId: s.class_id, courseId: s.course_id, date: l.date })!;
-      db.run('INSERT INTO pay_statement_lines (statement_id, session_id, minutes, rate_mode, rate_amount, amount) VALUES (?,?,?,?,?,?)', id, l.sessionId, l.minutes, rate.mode, rate.amount, l.amount);
+      db.run('INSERT INTO pay_statement_lines (statement_id, session_id, minutes, rate_mode, rate_amount, amount, late_minutes, deduction) VALUES (?,?,?,?,?,?,?,?)', id, l.sessionId, l.minutes, rate.mode, rate.amount, l.amount, l.late, l.deduction);
     }
     for (const a of adjustments) db.run('UPDATE pay_adjustments SET statement_id = ? WHERE id = ?', id, a.id);
     db.audit(u.id, 'pay_statement', id, 'approve', undefined, { month, sessions: lines.length, total: r2(earned + adj) });
@@ -214,10 +232,10 @@ export function unapprove(db: DB, u: User, id: number) {
 export function statementDetail(db: DB, u: User, id: number) {
   const s = ownStatement(db, u, id);
   const lines = db.all(
-    `SELECT l.*, s.date, s.start_time, c.code FROM pay_statement_lines l JOIN sessions s ON s.id = l.session_id JOIN classes c ON c.id = s.class_id
+    `SELECT l.*, s.date, s.start_time, c.code, k.time AS checkin FROM pay_statement_lines l LEFT JOIN checkins k ON k.session_id = l.session_id JOIN sessions s ON s.id = l.session_id JOIN classes c ON c.id = s.class_id
       WHERE l.statement_id = ? ORDER BY s.date, s.start_time`, id,
   );
-  return { ...statementOut(s), lines: lines.map((l) => ({ sessionId: l.session_id, date: l.date, start: l.start_time, code: l.code, minutes: l.minutes, rate: rateLabel(l.rate_mode, l.rate_amount), amount: l.amount })), adjustments: db.all('SELECT id, amount, note FROM pay_adjustments WHERE statement_id = ?', id) };
+  return { ...statementOut(s), lines: lines.map((l) => ({ sessionId: l.session_id, date: l.date, start: l.start_time, code: l.code, minutes: l.minutes, rate: rateLabel(l.rate_mode, l.rate_amount), checkin: l.checkin, late: l.late_minutes, deduction: l.deduction, amount: l.amount })), adjustments: db.all('SELECT id, amount, note FROM pay_adjustments WHERE statement_id = ?', id) };
 }
 
 // ---------------------------------------------------------------------------------------------

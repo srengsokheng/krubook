@@ -63,15 +63,33 @@ test.describe('signed in', () => {
     await expect(page.getByText('E2E test break')).toHaveCount(0);
   });
 
-  test('attendance: mark a student and the mark survives a reload', async ({ page }) => {
+  test('attendance: ticking a student saves, and the tick survives a reload', async ({ page }) => {
     await page.goto('/classes/1/attendance');
-    const group = page.getByRole('radiogroup', { name: 'Attendance for 0230002' });
-    const target = (await group.getByRole('radio', { name: 'A' }).getAttribute('aria-checked')) === 'true' ? 'P' : 'A';
-    await group.getByRole('radio', { name: target }).click();
-    await expect(group.getByRole('radio', { name: target })).toHaveAttribute('aria-checked', 'true');
+    const box = page.getByRole('checkbox', { name: /^0230002 / });
+    const was = (await box.getAttribute('aria-checked')) === 'true';
+    await box.click();
+    await expect(box).toHaveAttribute('aria-checked', String(!was));
     await page.waitForLoadState('networkidle');
     await page.reload();
-    await expect(page.getByRole('radiogroup', { name: 'Attendance for 0230002' }).getByRole('radio', { name: target })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByRole('checkbox', { name: /^0230002 / })).toHaveAttribute('aria-checked', String(!was));
+  });
+
+  test('attendance: starting a roll call counts everyone left unticked as absent', async ({ page }) => {
+    await page.goto('/classes/1/attendance');
+    const sessions = page.getByRole('combobox', { name: 'Session' });
+    // Pick a session that has no roll call yet, if the demo has one; otherwise clear the latest.
+    const fresh = await sessions.locator('option').evaluateAll((os) => (os as HTMLOptionElement[]).find((o) => !o.text.includes('marked'))?.value ?? null);
+    if (fresh) await sessions.selectOption(fresh);
+    else {
+      await page.getByRole('button', { name: 'Clear', exact: true }).click();
+      await page.getByRole('dialog').getByRole('button', { name: 'Clear roll call' }).click();
+    }
+    await expect(page.getByText('Roll call not taken yet')).toBeVisible();
+    await page.getByRole('checkbox', { name: /^0230002 / }).click();
+    await expect(page.locator('.panel-head').getByText('1 came')).toBeVisible();
+    const absent = await page.locator('.roll-row.away').count();
+    expect(absent).toBeGreaterThan(10);
+    await expect(page.locator('.roll-row.unmarked')).toHaveCount(0);
   });
 
   test('gradebook: a valid score saves, an out-of-range score is refused', async ({ page }) => {

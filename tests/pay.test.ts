@@ -8,7 +8,7 @@ import type { DB } from '../server/db.ts';
 import { createApp, createHolder } from '../server/app.ts';
 import { addAccount, type User } from '../server/auth.ts';
 import { approveMonth, markPaid, payLines, payOverview, unapprove } from '../server/services/pay.ts';
-import { payMonthOf, payPeriod } from '../shared/pay.ts';
+import { lateDeduction, lateMinutes, payMonthOf, payPeriod } from '../shared/pay.ts';
 import { cancelSession, completeSession, reopenSession } from '../server/services/plan.ts';
 
 // Deterministic fixtures: sessions on fixed dates with known durations and rates.
@@ -261,5 +261,67 @@ describe('pay periods (16th of last month to 15th of this month by default)', ()
     taught(session(classA, '2026-09-30', '13:00', '14:00'));
     const r = await call('GET', '/pay/lines?month=2026-09');
     expect(r.body.items.map((l: any) => l.date).sort()).toEqual(['2026-08-31', '2026-09-01']);
+  });
+});
+
+describe('teacher check-in and late arrivals', () => {
+  it('lateness is minutes after the start; the deduction follows the rate and grace period', () => {
+    const rate = (mode: 'hourly' | 'per_session', amount: number) => ({ id: 1, classId: null, courseId: null, mode, amount, effectiveFrom: '2026-01-01' as const });
+    expect(lateMinutes('13:00', '13:12')).toBe(12);
+    expect(lateMinutes('13:00', '12:55')).toBe(0);
+    expect(lateMinutes('13:00', null)).toBe(0);
+    expect(lateDeduction(rate('hourly', 12), 120, 10, { mode: 'deduct', graceMinutes: 0 })).toEqual({ minutes: 10, amount: 2 });
+    expect(lateDeduction(rate('per_session', 30), 120, 12, { mode: 'deduct', graceMinutes: 0 })).toEqual({ minutes: 12, amount: 3 });
+    expect(lateDeduction(rate('hourly', 12), 120, 5, { mode: 'deduct', graceMinutes: 5 })).toEqual({ minutes: 0, amount: 0 });
+    expect(lateDeduction(rate('hourly', 12), 120, 6, { mode: 'deduct', graceMinutes: 5 })).toEqual({ minutes: 6, amount: 1.2 });
+    expect(lateDeduction(rate('hourly', 12), 120, 30, { mode: 'none', graceMinutes: 0 })).toEqual({ minutes: 0, amount: 0 });
+    expect(lateDeduction(rate('hourly', 12), 60, 90, { mode: 'deduct', graceMinutes: 0 }).minutes).toBe(60);
+  });
+
+  it('checking in late lowers the estimate, and an approved statement keeps the deduction', async () => {
+    hourly(12);
+    const id = session(classA, '2026-10-20', '13:00', '15:00');
+    taught(id);
+    expect((await call('POST', `/sessions/${id}/checkin`, { time: '13:10' })).body).toMatchObject({ time: '13:10', source: 'manual', late: 10, deducted: true });
+    const [line] = payLines(db, u, '2026-10-01', '2026-10-31');
+    expect(line).toMatchObject({ checkin: '13:10', late: 10, deduction: 2, amount: 22 });
+    expect(payOverview(db, u, '2026').months.find((m) => m.month === '2026-11')).toMatchObject({ lateSessions: 1, deductions: 2, estimated: 22 });
+
+    approveMonth(db, u, '2026-11'); // 20 Oct falls in the November pay period (16 Oct – 15 Nov)
+    // Changing the rule later does not touch the approved month, and the check-in is locked.
+    expect((await call('PUT', '/settings', { lateRule: { mode: 'none', graceMinutes: 0 } })).status).toBe(200);
+    expect(payLines(db, u, '2026-10-01', '2026-10-31')[0]).toMatchObject({ late: 10, deduction: 2, amount: 22, statementStatus: 'approved' });
+    expect((await call('POST', `/sessions/${id}/checkin`, { time: '13:00' })).status).toBe(409);
+    expect((await call('DELETE', `/sessions/${id}/checkin`)).status).toBe(409);
+  });
+
+  it('the grace period and the record-only rule leave pay unchanged', async () => {
+    hourly(12);
+    const id = session(classA, '2026-10-20', '13:00', '15:00');
+    taught(id);
+    await call('POST', `/sessions/${id}/checkin`, { time: '13:05' });
+    expect((await call('PUT', '/settings', { lateRule: { mode: 'deduct', graceMinutes: 5 } })).status).toBe(200);
+    expect(payLines(db, u, '2026-10-01', '2026-10-31')[0]).toMatchObject({ late: 5, deduction: 0, amount: 24 });
+    expect((await call('PUT', '/settings', { lateRule: { mode: 'deduct', graceMinutes: 500 } })).status).toBe(422);
+  });
+
+  it('tapping check-in works only on the day; typed times work for past sessions; future and cancelled sessions refuse', async () => {
+    const todayId = session(classA, '2026-10-24', '13:00', '15:00');
+    process.env.KRUBOOK_NOW_TIME = '13:03';
+    try {
+      expect((await call('POST', `/sessions/${todayId}/checkin`, {})).body).toMatchObject({ time: '13:03', source: 'tap', late: 3 });
+    } finally { delete process.env.KRUBOOK_NOW_TIME; }
+    const past = session(classA, '2026-10-20', '13:00', '15:00');
+    expect((await call('POST', `/sessions/${past}/checkin`, {})).status).toBe(422);
+    expect((await call('POST', `/sessions/${past}/checkin`, { time: '12:58' })).body).toMatchObject({ late: 0 });
+    expect((await call('POST', `/sessions/${past}/checkin`, { time: '1pm' })).status).toBe(422);
+    const future = session(classA, '2026-10-27', '13:00', '15:00');
+    expect((await call('POST', `/sessions/${future}/checkin`, { time: '13:00' })).status).toBe(422);
+    const cancelled = session(classB, '2026-10-21', '13:00', '15:00');
+    cancelSession(db, u, cancelled, 'sick');
+    expect((await call('POST', `/sessions/${cancelled}/checkin`, { time: '13:00' })).status).toBe(422);
+    // A session you checked in to cannot be cancelled until the check-in is removed.
+    expect((await call('POST', `/sessions/${past}/cancel`, { reason: 'x' })).status).toBe(409);
+    expect((await call('DELETE', `/sessions/${past}/checkin`)).body).toMatchObject({ time: null });
   });
 });

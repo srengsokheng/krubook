@@ -5,7 +5,7 @@ import { classSummary, orderedParts } from './plan.ts';
 import { gradebook } from './records.ts';
 import { addDays, DEFAULT_TZ, durationMinutes, formatDate, nowTimeIn, todayIn, weekday } from '../../shared/dates.ts';
 import { payOverview } from './pay.ts';
-import { payMonthOf } from '../../shared/pay.ts';
+import { lateMinutes, payMonthOf } from '../../shared/pay.ts';
 
 // ---------------------------------------------------------------------------------------------
 // Dashboard
@@ -64,9 +64,11 @@ export function dashboard(db: DB, u: User) {
     const p = partNames.get(partId);
     return p ? db.all('SELECT id, kind, title, status, url FROM materials WHERE lesson_id = ? AND (part_id IS NULL OR part_id = ?) ORDER BY kind', p.lessonId, partId) : [];
   };
+  const checkins = new Map(db.all(`SELECT k.session_id, k.time, (l.id IS NOT NULL) AS locked FROM checkins k JOIN sessions s ON s.id = k.session_id LEFT JOIN pay_statement_lines l ON l.session_id = k.session_id WHERE s.class_id IN (${inList}) AND s.date = ?`, now).map((k) => [k.session_id, k]));
   const decorate = (s: any) => {
     const c = byId.get(s.class_id)!;
-    return { id: s.id, classId: s.class_id, code: c.code, courseName: c.course_name, color: c.color, date: s.date, start: s.start_time, end: s.end_time, kind: s.kind, activity: s.activity, status: s.status, checkpoint: s.checkpoint, note: s.note, part: s.part_id ? partNames.get(s.part_id) ?? null : null, partId: s.part_id, materials: materialsFor(s.part_id) };
+    const k = checkins.get(s.id);
+    return { checkin: k ? { time: k.time, late: lateMinutes(s.start_time, k.time), locked: !!k.locked } : null, id: s.id, classId: s.class_id, code: c.code, courseName: c.course_name, color: c.color, date: s.date, start: s.start_time, end: s.end_time, kind: s.kind, activity: s.activity, status: s.status, checkpoint: s.checkpoint, note: s.note, part: s.part_id ? partNames.get(s.part_id) ?? null : null, partId: s.part_id, materials: materialsFor(s.part_id) };
   };
   const todays = window.filter((s) => s.date === now).map(decorate);
   const next = window.find((s) => s.status === 'planned' && (s.date > now || (s.date === now && s.start_time >= time)));

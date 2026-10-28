@@ -345,16 +345,18 @@ table.sheet { border-collapse: separate; border-spacing: 0; font-size: var(--fs-
 
 /* ---------- Attendance ---------- */
 .roll { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 0; border-top: 1px solid var(--rule); }
-.roll-row { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--rule); border-right: 1px solid var(--rule); min-width: 0; }
-.roll-row .who { flex: 1; min-width: 0; }
-.roll-row .who div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.marks { display: inline-flex; gap: 3px; }
-.marks button { width: 34px; height: 34px; border-radius: var(--r-sm); border: 1px solid var(--rule-strong); background: var(--surface); font: 700 var(--fs-sm) var(--font-data); color: var(--ink-3); cursor: pointer; }
-.marks button.on.present { background: var(--ok); border-color: var(--ok); color: #fff; }
-.marks button.on.late { background: var(--warn); border-color: var(--warn); color: #fff; }
-.marks button.on.absent { background: var(--bad); border-color: var(--bad); color: #fff; }
-.marks button.on.excused { background: var(--ink-2); border-color: var(--ink-2); color: var(--surface); }
-.marks button:disabled { cursor: not-allowed; opacity: 0.5; }
+.roll-row { display: flex; align-items: center; gap: 12px; padding: 9px 14px; border: 0; border-bottom: 1px solid var(--rule); border-right: 1px solid var(--rule); min-width: 0; background: var(--surface); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.roll-row:hover:not(:disabled) { background: var(--surface-2); }
+.roll-row:disabled { cursor: not-allowed; }
+.roll-row .who { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.roll-row .who > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.roll-row .box { flex: none; width: 26px; height: 26px; border-radius: var(--r-sm); border: 1.5px solid var(--rule-strong); display: grid; place-items: center; background: var(--surface); }
+.roll-row .box svg { width: 18px; height: 18px; }
+.roll-row.unmarked .box { border-style: dashed; }
+.roll-row.came .box { background: var(--ok); border-color: var(--ok); color: #fff; }
+.roll-row.away .box { border-color: color-mix(in srgb, var(--bad) 45%, var(--rule-strong)); color: var(--bad); }
+.roll-row.away .box svg { width: 14px; height: 14px; }
+.roll-row.away .who > span:first-child { color: var(--ink-2); }
 
 /* ---------- Login ---------- */
 .login { min-height: 100%; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }

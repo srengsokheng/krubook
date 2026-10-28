@@ -54,3 +54,41 @@ export function payPeriod(month: string, startDay = DEFAULT_PAY_START_DAY): { fr
   const py = m === 1 ? y - 1 : y, pm = m === 1 ? 12 : m - 1;
   return { from: `${py}-${pad(pm)}-${pad(startDay)}`, to: `${month}-${pad(startDay - 1)}` };
 }
+
+// Late arrival. The teacher checks in for a session; minutes after the scheduled start are late.
+// With the 'deduct' rule, an arrival later than the grace period loses the pay for every late
+// minute (not only the minutes past the grace period). 'none' records lateness without changing pay.
+export interface LateRule {
+  mode: 'deduct' | 'none';
+  graceMinutes: number;
+}
+export const DEFAULT_LATE_RULE: LateRule = { mode: 'deduct', graceMinutes: 0 };
+
+const toMinutes = (t: string) => +t.slice(0, 2) * 60 + +t.slice(3, 5);
+
+/** Minutes between the scheduled start and the check-in; 0 when on time or early. */
+export function lateMinutes(start: string, checkin: string | null | undefined): number {
+  if (!checkin) return 0;
+  return Math.max(0, toMinutes(checkin) - toMinutes(start));
+}
+
+/**
+ * The amount taken off a session for arriving late. Hourly rates lose the late minutes at the
+ * hourly rate; per-session rates lose the same share of the session's scheduled length.
+ */
+export function lateDeduction(rate: Rate | null, scheduledMinutes: number, late: number, rule: LateRule): { minutes: number; amount: number } {
+  if (!rate || rule.mode !== 'deduct' || late <= rule.graceMinutes || scheduledMinutes <= 0) return { minutes: 0, amount: 0 };
+  const minutes = Math.min(late, scheduledMinutes);
+  const perMinute = rate.mode === 'hourly' ? rate.amount / 60 : rate.amount / scheduledMinutes;
+  return { minutes, amount: Math.round(perMinute * minutes * 100) / 100 };
+}
+
+export function parseLateRule(raw: string | null | undefined): LateRule {
+  try {
+    const v = JSON.parse(raw ?? '');
+    const grace = Number(v?.graceMinutes);
+    return { mode: v?.mode === 'none' ? 'none' : 'deduct', graceMinutes: Number.isInteger(grace) && grace >= 0 && grace <= 120 ? grace : 0 };
+  } catch {
+    return DEFAULT_LATE_RULE;
+  }
+}

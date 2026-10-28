@@ -527,4 +527,37 @@ UPDATE holidays SET
 
 DROP TABLE holiday_runs;
 `,
+  // 5: the teacher's own check-in for a session, and late-arrival deductions on pay statements.
+  `
+-- When the teacher arrived for a session (local time, HH:MM). 'tap' = checked in with the button at
+-- that moment; 'manual' = typed in afterwards.
+CREATE TABLE checkins (
+  id INTEGER PRIMARY KEY,
+  session_id INTEGER NOT NULL UNIQUE REFERENCES sessions(id) ON DELETE RESTRICT,
+  time TEXT NOT NULL CHECK (time GLOB '[0-2][0-9]:[0-5][0-9]'),
+  source TEXT NOT NULL DEFAULT 'tap' CHECK (source IN ('tap','manual')),
+  note TEXT,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- An approved statement keeps the late minutes and the deduction it was approved with.
+ALTER TABLE pay_statement_lines ADD COLUMN late_minutes INTEGER NOT NULL DEFAULT 0 CHECK (late_minutes >= 0);
+ALTER TABLE pay_statement_lines ADD COLUMN deduction REAL NOT NULL DEFAULT 0 CHECK (deduction >= 0);
+
+CREATE TRIGGER checkin_paid_ins BEFORE INSERT ON checkins
+WHEN EXISTS (SELECT 1 FROM pay_statement_lines WHERE session_id = NEW.session_id)
+BEGIN SELECT RAISE(ABORT, 'PAY_LOCKED'); END;
+CREATE TRIGGER checkin_paid_upd BEFORE UPDATE OF time ON checkins
+WHEN EXISTS (SELECT 1 FROM pay_statement_lines WHERE session_id = OLD.session_id)
+BEGIN SELECT RAISE(ABORT, 'PAY_LOCKED'); END;
+CREATE TRIGGER checkin_paid_del BEFORE DELETE ON checkins
+WHEN EXISTS (SELECT 1 FROM pay_statement_lines WHERE session_id = OLD.session_id)
+BEGIN SELECT RAISE(ABORT, 'PAY_LOCKED'); END;
+
+CREATE TRIGGER sessions_cancel_with_checkin BEFORE UPDATE OF status ON sessions
+WHEN NEW.status IN ('cancelled','skipped','moved') AND EXISTS (SELECT 1 FROM checkins WHERE session_id = NEW.id)
+BEGIN SELECT RAISE(ABORT, 'SESSION_HAS_CHECKIN'); END;
+`,
 ];

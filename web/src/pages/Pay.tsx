@@ -35,7 +35,7 @@ export function Pay() {
 
       <div className="figures">
         <div className="figure"><span className="eyebrow">Hours taught</span><span className="value">{(p.totals.taughtMinutes / 60).toFixed(1)}</span><span className="faint xs">{p.totals.taughtSessions} sessions</span></div>
-        <div className="figure"><span className="eyebrow">Earned</span><span className="value">{money(p.totals.total, cur)}</span></div>
+        <div className="figure"><span className="eyebrow">Earned</span><span className="value">{money(p.totals.total, cur)}</span>{p.totals.lateSessions > 0 && <span className="faint xs">{plural(p.totals.lateSessions, 'late arrival', 'late arrivals')}{p.totals.deductions > 0 ? ` · −${money(p.totals.deductions, cur)}` : ''}</span>}</div>
         <div className="figure"><span className="eyebrow">Paid</span><span className="value">{money(p.totals.paid, cur)}</span></div>
         <div className="figure"><span className="eyebrow">Outstanding</span><span className="value">{money(outstanding, cur)}</span><span className="faint xs">{money(p.totals.approved, cur)} approved · {money(p.totals.estimated, cur)} not yet approved</span></div>
       </div>
@@ -125,8 +125,8 @@ function StatementDetail({ id, onClose }: { id: number; onClose: () => void }) {
           </dl>
           <div className="table-wrap panel" style={{ maxHeight: '45vh', overflowY: 'auto' }}>
             <table className="table">
-              <thead><tr><th>Date</th><th>Class</th><th className="num">Minutes</th><th>Rate</th><th className="num">Amount</th></tr></thead>
-              <tbody>{s.lines.map((l: any) => <tr key={l.sessionId}><td className="mono small"><D date={l.date} /> {l.start}</td><td className="mono">{l.code}</td><td className="num">{l.minutes}</td><td className="small">{l.rate}</td><td className="num">{money(l.amount, s.currency)}</td></tr>)}</tbody>
+              <thead><tr><th>Date</th><th>Class</th><th className="num">Minutes</th><th>Arrived</th><th>Rate</th><th className="num">Amount</th></tr></thead>
+              <tbody>{s.lines.map((l: any) => <tr key={l.sessionId}><td className="mono small"><D date={l.date} /> {l.start}</td><td className="mono">{l.code}</td><td className="num">{l.minutes}</td><td className="small"><Arrived l={l} currency={s.currency} /></td><td className="small">{l.rate}</td><td className="num">{money(l.amount, s.currency)}</td></tr>)}</tbody>
             </table>
           </div>
         </>
@@ -146,12 +146,13 @@ function Sessions({ year, currency }: { year: string; currency: string }) {
     <div className="panel">
       <div className="table-wrap">
         <table className="table mobile-cards">
-          <thead><tr><th>Date</th><th>Class</th><th className="num">Minutes</th><th>Rate</th><th className="num">Amount</th><th>Status</th></tr></thead>
+          <thead><tr><th>Date</th><th>Class</th><th className="num">Minutes</th><th>Arrived</th><th>Rate</th><th className="num">Amount</th><th>Status</th></tr></thead>
           <tbody>{data.items.map((l: any) => (
             <tr key={l.sessionId}>
               <td data-label="Date" className="mono small"><span><D date={l.date} /> {l.start}</span></td>
               <td data-label="Class" className="mono"><span>{l.code}{l.isMakeup && <span className="pill" style={{ marginLeft: 6 }}>make-up</span>}</span></td>
               <td data-label="Minutes" className="num">{l.minutes}</td>
+              <td data-label="Arrived" className="small"><Arrived l={l} currency={currency} /></td>
               <td data-label="Rate" className="small">{l.rate ?? <Pill tone="warn">no rate</Pill>}</td>
               <td data-label="Amount" className="num">{money(l.amount, currency)}</td>
               <td data-label="Status">{l.statementStatus ? <Pill tone={l.statementStatus === 'paid' ? 'ok' : 'accent'}>{l.statementStatus}</Pill> : <span className="faint small">estimate</span>}</td>
@@ -194,6 +195,7 @@ function Rates({ p, year, reload }: { p: any; year: string; reload: () => void }
           </table>
         </div>
       ) : <div className="panel"><Empty title="No rates yet" /></div>}
+      <LateRule rule={p.lateRule} onSaved={reload} />
       {edit && <RateForm r={edit} classes={classes ?? []} courses={courses ?? []} onClose={() => setEdit(null)} onDone={reload} />}
       {del && <Confirm title="Delete this rate?" body="Approved and paid months keep their amounts. Months not yet approved are re-estimated without it." confirmLabel="Delete" danger onConfirm={() => run(() => api(`/rates/${del.id}`, { method: 'DELETE' }), 'Rate deleted').then(reload)} onClose={() => setDel(null)} />}
     </div>
@@ -259,5 +261,40 @@ function AdjustmentForm({ a, onClose, onDone }: { a: any; onClose: () => void; o
       </div>
       <Field label="Reason"><input id="a-note" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} placeholder="Exam invigilation, 15 Sep" /></Field>
     </Dialog>
+  );
+}
+
+function Arrived({ l, currency }: { l: any; currency: string }) {
+  if (!l.checkin) return <span className="faint">—</span>;
+  return (
+    <span className="mono">
+      {l.checkin}{' '}
+      {l.late > 0 ? <Pill tone="warn" title={l.deduction > 0 ? `${money(l.deduction, currency)} deducted` : 'Within the grace period; not deducted'}>{l.late} min late{l.deduction > 0 ? ` · −${money(l.deduction, currency)}` : ''}</Pill> : <span className="faint xs">on time</span>}
+    </span>
+  );
+}
+
+function LateRule({ rule, onSaved }: { rule: { mode: 'deduct' | 'none'; graceMinutes: number }; onSaved: () => void }) {
+  const [f, setF] = useState({ mode: rule.mode, grace: String(rule.graceMinutes) });
+  const { busy, run } = useAction();
+  const changed = f.mode !== rule.mode || Number(f.grace) !== rule.graceMinutes;
+  return (
+    <section className="panel">
+      <div className="panel-head"><h2>Late arrivals</h2></div>
+      <div className="panel-body stack">
+        <p className="faint small">Check in on the dashboard when you arrive. A check-in after the scheduled start counts as late.</p>
+        <div className="form-grid">
+          <Field label="When you arrive late">
+            <select id="late-mode" value={f.mode} onChange={(e) => setF({ ...f, mode: e.target.value as 'deduct' | 'none' })}>
+              <option value="deduct">Deduct the late minutes from pay</option>
+              <option value="none">Record it, but do not change pay</option>
+            </select>
+          </Field>
+          {f.mode === 'deduct' && <Field label="Grace period (minutes)" hint="Arriving this late or less is not deducted. Later than this, every late minute is deducted."><input id="late-grace" type="number" min={0} max={120} step={1} value={f.grace} onChange={(e) => setF({ ...f, grace: e.target.value })} /></Field>}
+        </div>
+        <p className="faint xs">Hourly rates lose the late minutes at the hourly rate; per-session rates lose the same share of the session. Approved months keep the amounts they were approved with.</p>
+        <button className="btn primary" style={{ alignSelf: 'flex-start' }} disabled={busy || !changed} onClick={() => run(() => api('/settings', { method: 'PUT', body: { lateRule: { mode: f.mode, graceMinutes: Number(f.grace || 0) } } }), 'Late-arrival rule saved').then((r) => { if (r) onSaved(); })}>Save</button>
+      </div>
+    </section>
   );
 }
