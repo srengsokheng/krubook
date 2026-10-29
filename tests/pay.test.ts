@@ -265,16 +265,16 @@ describe('pay periods (16th of last month to 15th of this month by default)', ()
 });
 
 describe('teacher check-in and late arrivals', () => {
-  it('lateness is minutes after the start; up to 10 min costs nothing, more cuts half, over 30 cuts everything', () => {
+  it('lateness is minutes after the start; up to 10 min costs nothing, 11–29 cuts half, 30 or more cuts everything', () => {
     expect(lateMinutes('13:00', '13:12')).toBe(12);
     expect(lateMinutes('13:00', '12:55')).toBe(0);
     expect(lateMinutes('13:00', null)).toBe(0);
     const rule = DEFAULT_LATE_RULE;
-    expect([0, 5, 10, 11, 30, 31, 90].map((m) => lateCutPercent(m, rule))).toEqual([0, 0, 0, 50, 50, 100, 100]);
+    expect([0, 5, 10, 11, 29, 30, 90].map((m) => lateCutPercent(m, rule))).toEqual([0, 0, 0, 50, 50, 100, 100]);
     expect(lateDeduction(24, 15, rule)).toEqual({ percent: 50, amount: 12 });
     expect(lateDeduction(24, 45, rule)).toEqual({ percent: 100, amount: 24 });
     expect(lateDeduction(24, 45, { steps: [] })).toEqual({ percent: 0, amount: 0 });
-    expect(validLateRule({ steps: [{ afterMinutes: 30, cutPercent: 100 }, { afterMinutes: 10, cutPercent: 50 }] })).toEqual(rule);
+    expect(validLateRule({ steps: [{ afterMinutes: 29, cutPercent: 100 }, { afterMinutes: 10, cutPercent: 50 }] })).toEqual(rule);
     expect(validLateRule({ steps: [{ afterMinutes: 10, cutPercent: 0 }] })).toBeNull();
     expect(validLateRule({ steps: [{ afterMinutes: 10, cutPercent: 50 }, { afterMinutes: 10, cutPercent: 60 }] })).toBeNull();
   });
@@ -297,13 +297,13 @@ describe('teacher check-in and late arrivals', () => {
     expect((await call('DELETE', `/sessions/${id}/checkin`)).status).toBe(409);
   });
 
-  it('up to 10 minutes late is not cut; more than 30 leaves the session unpaid; the rule can be changed', async () => {
+  it('up to 10 minutes late is not cut; 30 or more leaves the session unpaid; the rule can be changed', async () => {
     hourly(12);
     const a = session(classA, '2026-10-19', '13:00', '15:00'), b = session(classA, '2026-10-20', '13:00', '15:00');
     taught(a); taught(b);
     await call('POST', `/sessions/${a}/checkin`, { time: '13:10' });
-    await call('POST', `/sessions/${b}/checkin`, { time: '13:31' });
-    expect(payLines(db, u, '2026-10-01', '2026-10-31').map((l) => [l.late, l.deduction, l.amount])).toEqual([[10, 0, 24], [31, 24, 0]]);
+    await call('POST', `/sessions/${b}/checkin`, { time: '13:30' });
+    expect(payLines(db, u, '2026-10-01', '2026-10-31').map((l) => [l.late, l.deduction, l.amount])).toEqual([[10, 0, 24], [30, 24, 0]]);
     expect((await call('PUT', '/settings', { lateRule: { steps: [{ afterMinutes: 5, cutPercent: 25 }] } })).status).toBe(200);
     expect(payLines(db, u, '2026-10-01', '2026-10-31').map((l) => l.amount)).toEqual([18, 18]);
     expect((await call('PUT', '/settings', { lateRule: { steps: [{ afterMinutes: 5, cutPercent: 150 }] } })).status).toBe(422);

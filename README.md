@@ -211,8 +211,8 @@ recorded after a month was approved show as "not approved" and can be approved s
 The teacher taps **Check in** on the dashboard when they arrive (or types the arrival time in a
 session's dialog afterwards). A session counts as worked, and is paid, once it is checked in to or
 recorded as taught. Minutes after the scheduled start are late, and the late rule on **Pay › Rates**
-cuts that session's pay in steps. The default: up to 10 minutes late, no cut; more than 10, half;
-more than 30, the whole session. The highest step reached applies.
+cuts that session's pay in steps. The default: up to 10 minutes late, no cut; 11 to 29 minutes, half;
+30 minutes or more, the whole session. The highest step reached applies.
 
 Each pay month shows two figures. **Expected** is every session scheduled in the period that is not
 cancelled (holidays cancel sessions), at full rate and scheduled length, plus adjustments. **Actual**

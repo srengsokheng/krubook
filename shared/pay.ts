@@ -57,8 +57,9 @@ export function payPeriod(month: string, startDay = DEFAULT_PAY_START_DAY): { fr
 
 // Late arrival. The teacher checks in for a session; minutes after the scheduled start are late.
 // The late rule is a list of steps: arriving more than `afterMinutes` late cuts `cutPercent` of that
-// session's pay, and the highest step reached applies. The default: up to 10 minutes late costs
-// nothing, more than 10 cuts half, more than 30 leaves the session unpaid. No steps = no cuts.
+// session's pay, and the highest step reached applies. Lateness is in whole minutes, so "more than
+// 29" means 30 or more. The default: up to 10 minutes late costs nothing, 11 to 29 cuts half, 30 or
+// more leaves the session unpaid. No steps = no cuts.
 export interface LateStep {
   afterMinutes: number;
   cutPercent: number;
@@ -66,7 +67,7 @@ export interface LateStep {
 export interface LateRule {
   steps: LateStep[];
 }
-export const DEFAULT_LATE_RULE: LateRule = { steps: [{ afterMinutes: 10, cutPercent: 50 }, { afterMinutes: 30, cutPercent: 100 }] };
+export const DEFAULT_LATE_RULE: LateRule = { steps: [{ afterMinutes: 10, cutPercent: 50 }, { afterMinutes: 29, cutPercent: 100 }] };
 
 const toMinutes = (t: string) => +t.slice(0, 2) * 60 + +t.slice(3, 5);
 
