@@ -10,6 +10,8 @@ import { addAccount, type User } from '../server/auth.ts';
 import { approveMonth, markPaid, payLines, payOverview, unapprove } from '../server/services/pay.ts';
 import { DEFAULT_LATE_RULE, lateCutPercent, lateDeduction, lateMinutes, payMonthOf, payPeriod, validLateRule } from '../shared/pay.ts';
 import { cancelSession, completeSession, reopenSession } from '../server/services/plan.ts';
+import { autoRecordTaught } from '../server/services/checkin.ts';
+import { buildCheckinReminders } from '../server/services/reports.ts';
 
 // Deterministic fixtures: sessions on fixed dates with known durations and rates.
 process.env.KRUBOOK_TODAY = '2026-10-24';
@@ -339,5 +341,74 @@ describe('teacher check-in and late arrivals', () => {
     // A session you checked in to cannot be cancelled until the check-in is removed.
     expect((await call('POST', `/sessions/${past}/cancel`, { reason: 'x' })).status).toBe(409);
     expect((await call('DELETE', `/sessions/${past}/checkin`)).body).toMatchObject({ time: null });
+  });
+});
+
+describe('check-in reminders, links, automatic records and payslips', () => {
+  const enrol = (cls: number) => {
+    const st = db.run("INSERT INTO students (owner_id, student_code, name_latin) VALUES (?, ?, 'Student')", u.id, `S${cls}-${Math.random()}`).id;
+    return db.run("INSERT INTO enrollments (student_id, class_id, enrolled_on) VALUES (?, ?, '2026-09-01')", st, cls).id;
+  };
+
+  it('a reminder goes out shortly before an unchecked class, with a link that checks in only when pressed', async () => {
+    process.env.KRUBOOK_PUBLIC_URL = 'https://kru.example';
+    try {
+      const id = session(classA, '2026-10-24', '13:00', '15:00');
+      expect(buildCheckinReminders(db, u, '2026-10-24', '12:30')).toHaveLength(0);
+      const [r] = buildCheckinReminders(db, u, '2026-10-24', '12:50');
+      expect(r.text).toMatch(/^A1 lecture starts at 13:00\. Tap to check in:\nhttps:\/\/kru\.example\/api\/checkin-link\//);
+      const path = r.text.split('\n')[1].replace('https://kru.example/api', '');
+
+      // Opening the link (or a link preview fetching it) only shows a button.
+      const page = await fetch(base + path);
+      expect(await page.text()).toContain('Check in now');
+      expect(db.get('SELECT 1 FROM checkins WHERE session_id = ?', id)).toBeUndefined();
+      // A wrong token is refused.
+      expect((await fetch(base + path.replace(/.$/, (c) => (c === 'A' ? 'B' : 'A')), { method: 'POST' })).status).toBe(404);
+
+      process.env.KRUBOOK_NOW_TIME = '12:58';
+      const done = await fetch(base + path, { method: 'POST' });
+      expect(await done.text()).toContain('Checked in at 12:58');
+      expect(db.get('SELECT time, source FROM checkins WHERE session_id = ?', id)).toMatchObject({ time: '12:58', source: 'tap' });
+      expect(buildCheckinReminders(db, u, '2026-10-24', '12:55')).toHaveLength(0); // already checked in
+    } finally { delete process.env.KRUBOOK_PUBLIC_URL; delete process.env.KRUBOOK_NOW_TIME; }
+  });
+
+  it('a class you checked in to and took the roll call for is recorded as taught once it ends', async () => {
+    const e = enrol(classA);
+    const both = session(classA, '2026-10-24', '08:00', '09:30');
+    const noRoll = session(classA, '2026-10-23', '08:00', '09:30');
+    await call('POST', `/sessions/${both}/checkin`, { time: '08:00' });
+    await call('POST', `/sessions/${noRoll}/checkin`, { time: '08:00' });
+    await call('POST', '/sync', { ops: [{ opId: 'a', type: 'attendance', sessionId: both, enrollmentId: e, status: 'present', baseVersion: null }] });
+
+    process.env.KRUBOOK_NOW_TIME = '09:00';
+    try { expect(autoRecordTaught(db, u)).toEqual([]); } finally { delete process.env.KRUBOOK_NOW_TIME; }
+    process.env.KRUBOOK_NOW_TIME = '09:30';
+    try { expect(autoRecordTaught(db, u)).toEqual([both]); } finally { delete process.env.KRUBOOK_NOW_TIME; }
+    expect(db.get('SELECT status FROM sessions WHERE id = ?', both)!.status).toBe('completed');
+    expect(db.get('SELECT minutes, notes FROM teaching_records WHERE session_id = ?', both)).toMatchObject({ minutes: 90, notes: expect.stringContaining('automatically') });
+    expect(db.get('SELECT status FROM sessions WHERE id = ?', noRoll)!.status).toBe('planned');
+
+    expect((await call('PUT', '/settings', { autoRecordTaught: false })).status).toBe(200);
+    await call('POST', '/sync', { ops: [{ opId: 'b', type: 'attendance', sessionId: noRoll, enrollmentId: e, status: 'present', baseVersion: null }] });
+    expect(autoRecordTaught(db, u)).toEqual([]);
+  });
+
+  it('the payslip lists every session, holidays earn nothing, and a short payment shows the difference', async () => {
+    hourly(12);
+    const worked = session(classA, '2026-10-19', '13:00', '15:00');
+    await call('POST', `/sessions/${worked}/checkin`, { time: '13:12' });          // 50% cut
+    cancelSession(db, u, session(classA, '2026-10-29', '13:00', '15:00'), 'Coronation Day');
+    session(classA, '2026-10-21', '13:00', '15:00');                               // past, not recorded
+    db.run("INSERT INTO pay_adjustments (owner_id, month, amount, note) VALUES (?, '2026-11', 5, 'Invigilation')", u.id);
+    const p = (await call('GET', '/pay/payslip/2026-11')).body;
+    expect(p.rows.map((r: any) => [r.date, r.state, r.amount])).toEqual([['2026-10-19', 'worked', 12], ['2026-10-21', 'not recorded', 0], ['2026-10-29', 'not held', 0]]);
+    expect(p.rows[2].reason).toBe('Coronation Day');
+    expect(p.totals).toMatchObject({ expected: 53, lateCuts: 12, actual: 17, notHeld: 1, notRecorded: 1, paid: null, difference: null });
+
+    const st = approveMonth(db, u, '2026-11');
+    markPaid(db, u, st.id, { amount: 15 });
+    expect((await call('GET', '/pay/payslip/2026-11')).body.totals).toMatchObject({ paid: 15, difference: -2 });
   });
 });

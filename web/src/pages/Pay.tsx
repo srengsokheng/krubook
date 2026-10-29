@@ -73,13 +73,14 @@ function Months({ p, reload }: { p: any; reload: () => void }) {
                   <td data-label="Actual" className="num"><span><b>{money(m.total, cur)}</b><div className="faint xs mono">{(m.taughtMinutes / 60).toFixed(1)} h worked{m.plannedSessions > 0 ? ` · ${m.plannedSessions} to go` : ''}{m.deductions > 0 ? ` · −${money(m.deductions, cur)} late` : ''}</div></span></td>
                   <td data-label="Status">
                     <div className="row" style={{ gap: 6 }}>
-                      {sts.map((s: any) => <button key={s.id} className="btn ghost sm" style={{ padding: 0 }} onClick={() => setOpen(s.id)}><Pill tone={s.status === 'paid' ? 'ok' : 'accent'}>{s.status === 'paid' ? `Paid ${money(s.paidAmount, cur)}` : `Approved ${money(s.total, cur)}`}</Pill></button>)}
+                      {sts.map((s: any) => <button key={s.id} className="btn ghost sm" style={{ padding: 0 }} onClick={() => setOpen(s.id)}><Pill tone={s.status === 'paid' ? (s.paidAmount != null && Math.abs(s.paidAmount - s.total) >= 0.005 ? 'bad' : 'ok') : 'accent'} title={s.status === 'paid' && s.paidAmount != null && Math.abs(s.paidAmount - s.total) >= 0.005 ? `Approved ${money(s.total, cur)}; the school paid ${money(Math.abs(s.paidAmount - s.total), cur)} ${s.paidAmount < s.total ? 'less' : 'more'}` : undefined}>{s.status === 'paid' ? `Paid ${money(s.paidAmount, cur)}${s.paidAmount != null && Math.abs(s.paidAmount - s.total) >= 0.005 ? ` · ${s.paidAmount < s.total ? '−' : '+'}${money(Math.abs(s.paidAmount - s.total), cur)}` : ''}` : `Approved ${money(s.total, cur)}`}</Pill></button>)}
                       {m.estimated !== 0 && <Pill tone="warn">{money(m.estimated, cur)} not approved</Pill>}
                     </div>
                   </td>
                   <td data-label="" className="no-print" style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
                     <span>{canApprove && <button className="btn sm primary" disabled={busy} onClick={() => approve(m.month)}>Approve</button>}{' '}
-                    {sts.filter((s: any) => s.status === 'approved').map((s: any) => <Menu key={s.id} label="Statement" items={[{ label: 'Mark as paid…', onSelect: () => setPaying(s) }, { label: 'View sessions', onSelect: () => setOpen(s.id) }, { label: 'Undo approval', danger: true, onSelect: () => setUndo(s) }]} />)}</span>
+                    {sts.filter((s: any) => s.status === 'approved').map((s: any) => <Menu key={s.id} label="Statement" items={[{ label: 'Mark as paid…', onSelect: () => setPaying(s) }, { label: 'View sessions', onSelect: () => setOpen(s.id) }, { label: 'Undo approval', danger: true, onSelect: () => setUndo(s) }]} />)}
+                    {' '}<Link className="btn sm ghost" to={`/print/payslip/${m.month}`} target="_blank"><Icon name="printer" />Payslip</Link></span>
                   </td>
                 </tr>
               );
@@ -105,6 +106,7 @@ function MarkPaid({ s, onClose, onDone }: { s: any; onClose: () => void; onDone:
         <Field label="Paid on"><input id="mp-on" type="date" value={f.paidOn} onChange={(e) => setF({ ...f, paidOn: e.target.value })} /></Field>
         <Field label="Amount received"><input id="mp-amt" type="number" min={0} step="0.01" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></Field>
       </div>
+      {f.amount !== '' && Math.abs(Number(f.amount) - s.total) >= 0.005 && <Notice tone="warn">That is {money(Math.abs(Number(f.amount) - s.total), s.currency)} {Number(f.amount) < s.total ? 'less' : 'more'} than approved. The month and its payslip will show the difference.</Notice>}
       <Field label="Note"><input id="mp-note" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} placeholder="e.g. bank transfer" /></Field>
     </Dialog>
   );

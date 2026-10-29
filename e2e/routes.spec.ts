@@ -7,7 +7,7 @@ const ROUTES = [
   '/courses', '/courses/1', '/terms', '/terms/1', '/students', '/students/1',
   '/pay', '/pay#sessions', '/pay#rates', '/pay#adjustments', '/import',
   '/settings', '/settings#holidays', '/settings#reminders', '/settings#backup', '/settings#activity',
-  '/print/attendance/1', '/print/gradebook/1', '/print/plan/1',
+  '/print/attendance/1', '/print/gradebook/1', '/print/plan/1', '/print/payslip/2026-11',
 ];
 
 test.use({ storageState: 'e2e-results/auth.json' });

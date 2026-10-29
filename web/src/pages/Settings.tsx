@@ -28,7 +28,7 @@ export function Settings({ me }: { me: Me }) {
   const [confirmRestore, setConfirmRestore] = useState(false);
   const [year, setYear] = useState(String(new Date().getFullYear()));
   const { busy, run } = useAction();
-  useEffect(() => { if (s) { setF({ timezone: s.timezone, payPeriodStart: s.payPeriodStart, notifyEnabled: s.notifyEnabled, notifyTime: s.notifyTime, telegramChat: s.telegramChat, telegramToken: '' }); setLabels(s.statusLabels ?? {}); } }, [s]);
+  useEffect(() => { if (s) { setF({ timezone: s.timezone, payPeriodStart: s.payPeriodStart, notifyEnabled: s.notifyEnabled, notifyCheckin: s.notifyCheckin, autoRecordTaught: s.autoRecordTaught, notifyTime: s.notifyTime, telegramChat: s.telegramChat, telegramToken: '' }); setLabels(s.statusLabels ?? {}); } }, [s]);
   if (error) return <div className="page"><ErrorNote error={error} retry={reload} /></div>;
   if (!s || !f) return <div className="page"><Loading /></div>;
 
@@ -46,7 +46,7 @@ export function Settings({ me }: { me: Me }) {
       <div className={tab === 'general' ? 'grid two' : 'stack'}>
         {tab === 'general' && (
         <section className="panel">
-          <div className="panel-head"><h2>Language, time and pay period</h2></div>
+          <div className="panel-head"><h2>Language, time and pay</h2></div>
           <div className="panel-body stack">
             <Field label={t('Language')}>
               <div className="seg">{(['en', 'km'] as Lang[]).map((l) => <button key={l} className={lang === l ? 'on' : ''} onClick={() => setLang(l)}>{l === 'en' ? 'English' : 'ខ្មែរ'}</button>)}</div>
@@ -58,7 +58,9 @@ export function Settings({ me }: { me: Me }) {
                 {Array.from({ length: 28 }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n === 1 ? 'Calendar month (1st – end of month)' : `${ordinal(n)} of last month – ${ordinal(n - 1)} of this month`}</option>)}
               </select>
             </Field>
-            <button className="btn primary" style={{ alignSelf: 'flex-start' }} disabled={busy} onClick={() => run(() => api('/settings', { method: 'PUT', body: { timezone: f.timezone, payPeriodStart: f.payPeriodStart } }), 'Saved').then(reload)}>Save</button>
+            <label className="check"><input type="checkbox" checked={f.autoRecordTaught} onChange={(e) => setF({ ...f, autoRecordTaught: e.target.checked })} /> Record a class as taught when it ends, if I checked in and took the roll call</label>
+            <p className="faint xs">It uses the planned lesson and the full class length. Classes without both still wait on the Review page.</p>
+            <button className="btn primary" style={{ alignSelf: 'flex-start' }} disabled={busy} onClick={() => run(() => api('/settings', { method: 'PUT', body: { timezone: f.timezone, payPeriodStart: f.payPeriodStart, autoRecordTaught: f.autoRecordTaught } }), 'Saved').then(reload)}>Save</button>
           </div>
         </section>
         )}
@@ -116,8 +118,9 @@ export function Settings({ me }: { me: Me }) {
         <section className="panel">
           <div className="panel-head"><h2>Reminders</h2></div>
           <div className="panel-body stack">
-            <p className="faint xs">Reminders go to Telegram once a day after the time you choose: tomorrow’s classes, materials that are not ready, and labs or exams in the next week. Each reminder is sent once. Email is not supported yet.</p>
+            <p className="faint xs">Reminders go to Telegram once a day after the time you choose: tomorrow’s classes, materials that are not ready, and labs or exams in the next week. The check-in reminder comes before each class instead. Each reminder is sent once. Email is not supported yet.</p>
             <label className="check"><input type="checkbox" checked={f.notifyEnabled} onChange={(e) => setF({ ...f, notifyEnabled: e.target.checked })} /> Send reminders</label>
+            <label className="check"><input type="checkbox" checked={f.notifyCheckin} disabled={!f.notifyEnabled} onChange={(e) => setF({ ...f, notifyCheckin: e.target.checked })} /> Check-in reminder about 10 minutes before each class, with a one-tap check-in link</label>
             <div className="form-grid">
               <Field label="Send after"><input id="n-time" type="time" value={f.notifyTime} onChange={(e) => setF({ ...f, notifyTime: e.target.value })} /></Field>
               <Field label="Telegram chat ID"><input id="n-chat" value={f.telegramChat} onChange={(e) => setF({ ...f, telegramChat: e.target.value })} /></Field>

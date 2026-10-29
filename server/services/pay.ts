@@ -289,3 +289,64 @@ export function validateAdjustment(b: Row) {
   if (!note) throw new AppError(422, 'Explain the adjustment in the note.');
   return { month, amount: r2(amount), note };
 }
+
+// ---------------------------------------------------------------------------------------------
+// Payslip: one pay month, every session in it and what happened to it, to check against what the
+// school actually paid.
+
+export function payslip(db: DB, u: User, month: string) {
+  if (!MONTH_RE.test(month)) throw new AppError(422, 'Choose a month as YYYY-MM.');
+  const sd = payStartDay(db, u);
+  const { from, to } = payPeriod(month, sd);
+  const now = today(db, u);
+  const rates = loadRates(db, u.id);
+  const worked = new Map(payLines(db, u, from, to).map((l) => [l.sessionId, l]));
+  const sessions = db.all(
+    `SELECT s.id, s.date, s.start_time, s.end_time, s.status, s.note, s.kind, s.class_id, c.code, c.course_id FROM sessions s JOIN classes c ON c.id = s.class_id
+      WHERE c.teacher_id = ? AND s.date BETWEEN ? AND ? AND s.status <> 'moved' ORDER BY s.date, s.start_time, s.id`,
+    u.id, from, to,
+  );
+  const rows = sessions.map((s) => {
+    const minutes = durationMinutes(s.start_time, s.end_time);
+    const full = sessionPay(resolveRate(rates, { classId: s.class_id, courseId: s.course_id, date: s.date }), minutes);
+    const l = worked.get(s.id);
+    const state = l ? 'worked' : s.status === 'cancelled' || s.status === 'skipped' ? 'not held' : s.date >= now ? 'planned' : 'not recorded';
+    return {
+      sessionId: s.id, date: s.date, start: s.start_time, end: s.end_time, code: s.code, kind: s.kind, state,
+      reason: state === 'not held' ? s.note : null,
+      scheduledMinutes: minutes, fullPay: state === 'not held' ? 0 : full,
+      minutes: l?.minutes ?? null, checkin: l?.checkin ?? null, late: l?.late ?? 0, cut: l?.deduction ?? 0, amount: l?.amount ?? 0,
+      statementStatus: l?.statementStatus ?? null,
+    };
+  });
+  const adjustments = db.all('SELECT id, amount, note, statement_id FROM pay_adjustments WHERE owner_id = ? AND month = ? ORDER BY id', u.id, month);
+  const statements = db.all('SELECT * FROM pay_statements WHERE owner_id = ? AND month = ? ORDER BY id', u.id, month).map(statementOut);
+  const adj = r2(adjustments.reduce((s, a) => s + a.amount, 0));
+  const sum = (f: (r: (typeof rows)[number]) => number) => r2(rows.reduce((s, r) => s + f(r), 0));
+  const actual = r2(sum((r) => r.amount) + adj);
+  const paid = statements.filter((s) => s.status === 'paid');
+  const paidAmount = paid.length ? r2(paid.reduce((s, x) => s + (x.paidAmount ?? x.total), 0)) : null;
+  const paidStatementTotal = r2(paid.reduce((s, x) => s + x.total, 0));
+  return {
+    month, from, to, teacher: u.name, currency: rates[0]?.currency ?? 'USD', lateRule: loadLateRule(db, u.id),
+    rows,
+    adjustments: adjustments.map((a) => ({ id: a.id, amount: a.amount, note: a.note })),
+    statements,
+    totals: {
+      scheduledSessions: rows.filter((r) => r.state !== 'not held').length,
+      scheduledMinutes: rows.filter((r) => r.state !== 'not held').reduce((s, r) => s + r.scheduledMinutes, 0),
+      expected: r2(sum((r) => r.fullPay) + adj),
+      workedSessions: rows.filter((r) => r.state === 'worked').length,
+      workedMinutes: rows.reduce((s, r) => s + (r.minutes ?? 0), 0),
+      lateCuts: sum((r) => r.cut),
+      notHeld: rows.filter((r) => r.state === 'not held').length,
+      notRecorded: rows.filter((r) => r.state === 'not recorded').length,
+      planned: rows.filter((r) => r.state === 'planned').length,
+      adjustments: adj,
+      actual,
+      // What the school paid against what its paid statements said it would pay.
+      paid: paidAmount,
+      difference: paidAmount == null ? null : r2(paidAmount - paidStatementTotal),
+    },
+  };
+}

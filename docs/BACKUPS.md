@@ -27,6 +27,11 @@ not included.
 
 Needs your DigitalOcean account; nothing here is done without it.
 
+**Quick way:** create the bucket and key (step 1 below), then on the server run
+`sudo bash /opt/krubook/app/deploy/setup-offsite.sh`. It asks for the bucket, region and key, does
+step 2, runs the first backup with its read-back check, and prints the passphrase to save. The manual
+steps below do the same thing.
+
 1. In DigitalOcean: **Spaces Object Storage → Create bucket**, e.g. `krubook-backups` in `sgp1`. Keep
    it private. Optionally enable versioning. Then **API → Spaces Keys → Generate** a key limited to
    that bucket.

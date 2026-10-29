@@ -121,6 +121,9 @@ export function buildRouter(holder: DBHolder): Router {
     const row = db.get('SELECT * FROM users WHERE email = ?', String(req.body.email ?? '').trim());
     if (!row || !verifyPassword(String(req.body.password ?? ''), row.password_hash)) { fail(); throw new AppError(401, 'That email and password do not match an account.'); }
     startSession(db, req, res, row.id);
+    // Remember the address the app is used at, for links in Telegram reminders.
+    const host = req.get('host');
+    if (host && /^[a-z0-9.-]+(:\d+)?$/i.test(host)) setSetting(db, row.id, 'app.url', `${req.protocol}://${host}`);
     return { user: { id: row.id, email: row.email, name: row.name, role: row.role } };
   }, { auth: false });
   post('/auth/setup', (req, db, _u, res) => {
@@ -164,6 +167,8 @@ export function buildRouter(holder: DBHolder): Router {
     language: getSetting(db, u.id, 'language', 'en'),
     notifyEnabled: getSetting(db, u.id, 'notify.enabled', '0') === '1',
     notifyTime: getSetting(db, u.id, 'notify.time', '18:00'),
+    notifyCheckin: getSetting(db, u.id, 'notify.checkin', '1') === '1',
+    autoRecordTaught: getSetting(db, u.id, 'auto.recordTaught', '1') === '1',
     telegramChat: getSetting(db, u.id, 'notify.telegramChat', ''),
     hasTelegramToken: !!getSetting(db, u.id, 'notify.telegramToken', ''),
     statusLabels: JSON.parse(getSetting(db, u.id, 'statusLabels', '{}')),
@@ -179,6 +184,8 @@ export function buildRouter(holder: DBHolder): Router {
     }
     if (b.language !== undefined) setSetting(db, u.id, 'language', b.language === 'km' ? 'km' : 'en');
     if (b.notifyEnabled !== undefined) setSetting(db, u.id, 'notify.enabled', b.notifyEnabled ? '1' : '0');
+    if (b.notifyCheckin !== undefined) setSetting(db, u.id, 'notify.checkin', b.notifyCheckin ? '1' : '0');
+    if (b.autoRecordTaught !== undefined) setSetting(db, u.id, 'auto.recordTaught', b.autoRecordTaught ? '1' : '0');
     if (b.notifyTime !== undefined) { if (!isTime(b.notifyTime)) throw new AppError(422, 'Reminder time must be HH:MM.'); setSetting(db, u.id, 'notify.time', b.notifyTime); }
     if (b.telegramChat !== undefined) setSetting(db, u.id, 'notify.telegramChat', String(b.telegramChat).trim());
     if (b.telegramToken) setSetting(db, u.id, 'notify.telegramToken', String(b.telegramToken).trim());
@@ -515,6 +522,37 @@ export function buildRouter(holder: DBHolder): Router {
     if (sess.gen_key || sess.moved_from_id) throw new AppError(409, 'Only make-up or extra sessions you added can be deleted. Cancel planned sessions instead.');
     db.tx(() => { db.run('DELETE FROM sessions WHERE id = ?', sess.id); db.audit(u.id, 'session', sess.id, 'delete', sess); });
   });
+  // One-tap check-in from a Telegram reminder (see checkin.ts). Plain HTML pages, no sign-in.
+  const linkPage = (res: Response, status: number, title: string, body: string) => {
+    res.status(status).type('html').send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${esc(title)} · KruBook</title>
+<style>body{margin:0;font:16px/1.5 system-ui,sans-serif;background:#f2f4f7;color:#161d2e;display:grid;place-items:center;min-height:100vh}main{background:#fff;border:1px solid #dde1e9;border-radius:8px;padding:28px;max-width:360px;width:calc(100% - 32px);box-sizing:border-box}h1{font-size:20px;margin:0 0 8px}p{margin:0 0 16px;color:#4a5468}button{width:100%;height:52px;border:0;border-radius:6px;background:#2d44b5;color:#fff;font:600 17px system-ui,sans-serif}a{color:#2d44b5}@media(prefers-color-scheme:dark){body{background:#0e121b;color:#e7eaf2}main{background:#161b27;border-color:#262d3d}p{color:#b2b9c9}button{background:#8fa0ff;color:#0e121b}a{color:#8fa0ff}}</style></head><body><main>${body}</main></body></html>`);
+  };
+  const esc = (v: unknown) => String(v ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+  r.get('/checkin-link/:sid/:token', (req, res) => {
+    const db = holder.db;
+    const found = checkin.resolveCheckinLink(db, Number(req.params.sid), req.params.token);
+    if (!found) return linkPage(res, 404, 'Link not valid', '<h1>This link is not valid</h1><p>Open KruBook and check in from the dashboard.</p><a href="/">Open KruBook</a>');
+    const { u, s } = found;
+    const c = checkin.getCheckIn(db, u, s.id);
+    const what = `${esc(s.code)} · ${esc(s.start_time)}–${esc(s.end_time)}`;
+    if (c.time) return linkPage(res, 200, 'Checked in', `<h1>Checked in at ${esc(c.time)}</h1><p>${what} · ${c.late ? `${c.late} min late` : 'on time'}</p><a href="/">Open KruBook</a>`);
+    if (!c.canTap) return linkPage(res, 200, 'Check-in closed', `<h1>Check-in is not open</h1><p>${what} on ${esc(s.date)}. This link works on the day of the session.</p><a href="/">Open KruBook</a>`);
+    return linkPage(res, 200, 'Check in', `<h1>${esc(s.code)}</h1><p>${esc(s.date)} · ${esc(s.start_time)}–${esc(s.end_time)}</p><form method="post"><button type="submit">Check in now</button></form>`);
+  });
+  r.post('/checkin-link/:sid/:token', (req, res) => {
+    const db = holder.db;
+    const found = checkin.resolveCheckinLink(db, Number(req.params.sid), req.params.token);
+    if (!found) return linkPage(res, 404, 'Link not valid', '<h1>This link is not valid</h1><p>Open KruBook and check in from the dashboard.</p><a href="/">Open KruBook</a>');
+    const { u, s } = found;
+    try {
+      const before = checkin.getCheckIn(db, u, s.id);
+      const c = before.time ? before : checkin.checkIn(db, u, s.id, {});
+      linkPage(res, 200, 'Checked in', `<h1>Checked in at ${esc(c.time)}</h1><p>${esc(s.code)} · starts ${esc(s.start_time)} · ${c.late ? `${c.late} min late` : 'on time'}</p><a href="/">Open KruBook</a>`);
+    } catch (e) {
+      const err = e instanceof AppError ? e : translateDbError(e);
+      linkPage(res, err?.status ?? 500, 'Not checked in', `<h1>Not checked in</h1><p>${esc(err?.message ?? 'Something went wrong. Check in from the dashboard instead.')}</p><a href="/">Open KruBook</a>`);
+    }
+  });
   get('/sessions/:id/checkin', (req, db, u) => checkin.getCheckIn(db, u, num(req.params.id, 'session')));
   post('/sessions/:id/checkin', (req, db, u) => checkin.checkIn(db, u, num(req.params.id, 'session'), req.body ?? {}));
   del('/sessions/:id/checkin', (req, db, u) => checkin.clearCheckIn(db, u, num(req.params.id, 'session')));
@@ -640,7 +678,7 @@ export function buildRouter(holder: DBHolder): Router {
   post('/sync', (req, db, u) => ({ results: records.applySync(db, u, req.body.ops) }));
 
   // ---- Dashboard & pay ---------------------------------------------------------------------
-  get('/dashboard', (_req, db, u) => reports.dashboard(db, u));
+  get('/dashboard', (_req, db, u) => { checkin.autoRecordTaught(db, u); return reports.dashboard(db, u); });
 
   // ---- Reconciliation (review first, then apply) --------------------------------------------
   get('/reconcile/sessions', (_req, db, u) => reconcile.unrecordedSessions(db, u));
@@ -669,6 +707,7 @@ export function buildRouter(holder: DBHolder): Router {
     const lines = pay.payLines(db, u, period.from, period.to);
     return pageArray(lines.reverse(), p);
   });
+  get('/pay/payslip/:month', (req, db, u) => pay.payslip(db, u, String(req.params.month)));
   post('/pay/statements', (req, db, u) => pay.approveMonth(db, u, String(req.body.month ?? ''), req.body.note));
   get('/pay/statements/:id', (req, db, u) => pay.statementDetail(db, u, num(req.params.id, 'statement')));
   post('/pay/statements/:id/paid', (req, db, u) => pay.markPaid(db, u, num(req.params.id, 'statement'), req.body));

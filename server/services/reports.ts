@@ -3,7 +3,8 @@ import type { User } from '../auth.ts';
 import { classScope, getSetting, payStartDay, today } from './access.ts';
 import { classSummary, orderedParts } from './plan.ts';
 import { gradebook } from './records.ts';
-import { addDays, DEFAULT_TZ, durationMinutes, formatDate, nowTimeIn, todayIn, weekday } from '../../shared/dates.ts';
+import { addDays, DEFAULT_TZ, durationMinutes, formatDate, minutesOf, nowTimeIn, todayIn, weekday } from '../../shared/dates.ts';
+import { checkinLink } from './checkin.ts';
 import { payOverview } from './pay.ts';
 import { lateMinutes, payMonthOf } from '../../shared/pay.ts';
 
@@ -142,11 +143,32 @@ export function buildReminders(db: DB, u: User, now: string = today(db, u)): Rem
   return out;
 }
 
+/** Classes starting within the next CHECKIN_LEAD minutes (or started up to 10 minutes ago) that you
+ * have not checked in to, each with a one-tap check-in link. Sent once per session. */
+export const CHECKIN_LEAD = 15;
+export function buildCheckinReminders(db: DB, u: User, date: string, time: string): Reminder[] {
+  const t = minutesOf(time);
+  const rows = db.all(
+    `SELECT s.id, s.start_time, s.end_time, s.kind, c.code, COALESCE(m.room, c.room) AS room FROM sessions s JOIN classes c ON c.id = s.class_id LEFT JOIN meetings m ON m.id = s.meeting_id
+      WHERE c.teacher_id = ? AND s.date = ? AND s.status = 'planned' AND NOT EXISTS (SELECT 1 FROM checkins k WHERE k.session_id = s.id)
+      ORDER BY s.start_time`,
+    u.id, date,
+  );
+  return rows.filter((r) => t >= minutesOf(r.start_time) - CHECKIN_LEAD && t <= minutesOf(r.start_time) + 10).map((r) => {
+    const link = checkinLink(db, u, r.id);
+    return {
+      key: `${u.id}:checkin:${r.id}`,
+      text: `${r.code} ${r.kind} starts at ${r.start_time}${r.room ? ` in ${r.room}` : ''}. ${link ? `Tap to check in:\n${link}` : 'Check in on the KruBook dashboard.'}`,
+    };
+  });
+}
+
 export async function sendTelegram(token: string, chatId: string, text: string): Promise<void> {
   const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text }),
+    // No link previews: a preview fetch must never be mistaken for opening a check-in link.
+    body: JSON.stringify({ chat_id: chatId, text, link_preview_options: { is_disabled: true } }),
   });
   if (!res.ok) throw new Error(`Telegram responded ${res.status}`);
 }
@@ -159,8 +181,12 @@ export async function runReminders(db: DB, send: (u: User, text: string) => Prom
     if (getSetting(db, u.id, 'notify.enabled', '0') !== '1') continue;
     const tz = getSetting(db, u.id, 'timezone', DEFAULT_TZ);
     const at = getSetting(db, u.id, 'notify.time', '18:00');
-    if (nowTimeIn(tz) < at) continue;
-    for (const r of buildReminders(db, u, todayIn(tz))) {
+    const time = nowTimeIn(tz), date = todayIn(tz);
+    const due = [
+      ...(getSetting(db, u.id, 'notify.checkin', '1') === '1' ? buildCheckinReminders(db, u, date, time) : []),
+      ...(time >= at ? buildReminders(db, u, date) : []),
+    ];
+    for (const r of due) {
       const claimed = db.run("INSERT OR IGNORE INTO notification_log (owner_id, dedupe_key, channel, message, status) VALUES (?,?,'telegram',?,'pending')", u.id, r.key, r.text);
       if (!claimed.changes) continue;
       try {

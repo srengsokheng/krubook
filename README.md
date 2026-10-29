@@ -221,6 +221,21 @@ late minutes and cut, so later rule changes only affect months not yet approved,
 approved statement cannot be changed. A session with a check-in cannot be cancelled or moved until the
 check-in is removed.
 
+### Check-in reminders, automatic records and payslips
+
+- **Reminder:** with Telegram reminders on, a message goes out about 10–15 minutes before each class you
+  have not checked in to, with a one-tap link. The link opens a page with a **Check in now** button; only
+  pressing it checks in (link previews never do), at the time it is pressed, and only on the class's day.
+  The link is signed per session (HMAC with a per-teacher secret) and needs no sign-in. Links use
+  `KRUBOOK_PUBLIC_URL`, else the address you last signed in at.
+- **Automatic record:** a class you checked in to and took the roll call for is recorded as taught when it
+  ends, with the planned lesson part and full length (Settings › General can turn this off). Everything
+  else still waits on the Review page. Runs every 5 minutes and whenever the dashboard opens.
+- **Payslip:** **Pay › By month › Payslip** prints one pay month: every session (worked, not held with the
+  reason, not recorded yet, or still planned), arrival, late cut and amount, adjustments, Expected and
+  Actual, and what the school paid. A paid amount different from the approved total is flagged there and
+  on the month.
+
 ## Attendance
 
 A roll call is one tick per student: ticked came, unticked did not. Once any student in a session is
