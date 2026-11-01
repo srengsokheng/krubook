@@ -560,4 +560,17 @@ CREATE TRIGGER sessions_cancel_with_checkin BEFORE UPDATE OF status ON sessions
 WHEN NEW.status IN ('cancelled','skipped','moved') AND EXISTS (SELECT 1 FROM checkins WHERE session_id = NEW.id)
 BEGIN SELECT RAISE(ABORT, 'SESSION_HAS_CHECKIN'); END;
 `,
+  // 6: accounts for several teachers: suspension, paid-until date, features per account, first-login
+  // password change.
+  `
+ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','suspended'));
+-- Last day the account may change anything (inclusive). NULL = no end date. Admins never expire.
+ALTER TABLE users ADD COLUMN access_until TEXT;
+-- JSON list of feature keys switched off for this account (see shared/accounts.ts).
+ALTER TABLE users ADD COLUMN features_off TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN last_login_at TEXT;
+ALTER TABLE users ADD COLUMN note TEXT;
+CREATE INDEX auth_sessions_user ON auth_sessions(user_id);
+`,
 ];

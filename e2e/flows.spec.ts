@@ -158,6 +158,36 @@ test.describe('signed in', () => {
     await other.close();
   });
 
+  test('accounts: an admin adds a teacher, who chooses a password and sees only their own (empty) data', async ({ page, browser }) => {
+    await page.goto('/admin');
+    await page.getByRole('button', { name: 'Add account' }).click();
+    await page.locator('#acc-name').fill('New Teacher');
+    await page.locator('#acc-email').fill('new.teacher@krubook.test');
+    await page.locator('#acc-until').fill('2027-01-31');
+    await page.getByRole('dialog').getByRole('button', { name: 'Create account' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Account created' });
+    await expect(dialog).toBeVisible();
+    const temp = (await dialog.locator('dd b').textContent())!.trim();
+    await dialog.getByRole('button', { name: 'Done' }).click();
+    await expect(page.getByText('new.teacher@krubook.test')).toBeVisible();
+
+    const other = await browser.newPage({ storageState: undefined });
+    await other.goto('/');
+    await other.locator('#email').fill('new.teacher@krubook.test');
+    await other.locator('#password').fill(temp);
+    await other.getByRole('button', { name: 'Sign in' }).click();
+    await expect(other.getByRole('heading', { name: 'Choose your password' })).toBeVisible();
+    await other.locator('#cp-current').fill(temp);
+    await other.locator('#cp-next').fill('new-teacher-pass');
+    await other.locator('#cp-again').fill('new-teacher-pass');
+    await other.getByRole('button', { name: 'Save and continue' }).click();
+    await expect(other.getByRole('heading', { name: 'No classes today' })).toBeVisible();
+    await other.goto('/classes');
+    await expect(other.getByText('ASL3')).toHaveCount(0);
+    await expect(other.getByRole('link', { name: 'Accounts' })).toHaveCount(0);
+    await other.close();
+  });
+
   test('sign out ends the session', async ({ browser }) => {
     // A separate sign-in so the saved session used by the page tests stays valid.
     const page = await browser.newPage({ storageState: undefined });

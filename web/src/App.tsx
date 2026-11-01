@@ -3,10 +3,11 @@ import { BrowserRouter, NavLink, Route, Routes, useNavigate } from 'react-router
 import { clearPrefs, loadPrefs } from './prefs.ts';
 import { api } from './api.ts';
 import { I18nProvider, useI18n } from './i18n.tsx';
-import { Icon, Loading, ToastProvider } from './ui.tsx';
+import { Icon, Loading, Notice, ToastProvider } from './ui.tsx';
 import { SyncBadge, SyncProblems } from './SyncStatus.tsx';
 
 import { Login } from './pages/Login.tsx';
+import { ChoosePassword } from './pages/ChoosePassword.tsx';
 
 // Pages load on demand so the first screen downloads less.
 const Dashboard = lazy(() => import('./pages/Dashboard.tsx').then((m) => ({ default: m.Dashboard })));
@@ -23,6 +24,7 @@ const Pay = lazy(() => import('./pages/Pay.tsx').then((m) => ({ default: m.Pay }
 const Settings = lazy(() => import('./pages/Settings.tsx').then((m) => ({ default: m.Settings })));
 const PrintView = lazy(() => import('./pages/Print.tsx').then((m) => ({ default: m.PrintView })));
 const Review = lazy(() => import('./pages/Review.tsx').then((m) => ({ default: m.Review })));
+const Admin = lazy(() => import('./pages/Admin.tsx').then((m) => ({ default: m.Admin })));
 const ImportWorkbook = lazy(() => import('./pages/ImportWorkbook.tsx').then((m) => ({ default: m.ImportWorkbook })));
 const PAGE_MODULES = [() => import('./pages/Dashboard.tsx'), () => import('./pages/Timetable.tsx'), () => import('./pages/Classes.tsx'), () => import('./pages/ClassDetail.tsx'), () => import('./pages/Courses.tsx'), () => import('./pages/Terms.tsx'), () => import('./pages/Students.tsx'), () => import('./pages/Pay.tsx'), () => import('./pages/Settings.tsx'), () => import('./pages/Print.tsx'), () => import('./pages/Review.tsx'), () => import('./pages/ImportWorkbook.tsx')];
 /** After sign-in, fetch every page in the background so they open instantly and work offline. */
@@ -31,7 +33,7 @@ function preloadPages() {
   if ('requestIdleCallback' in window) (window as any).requestIdleCallback(go, { timeout: 4000 }); else setTimeout(go, 2000);
 }
 
-export interface Me { id: number; name: string; email: string; role: string }
+export interface Me { id: number; name: string; email: string; role: string; accessUntil?: string | null; featuresOff?: string[]; mustChangePassword?: boolean; expired?: boolean }
 
 export function App() {
   return (
@@ -64,6 +66,7 @@ function Gate() {
   }, [me, setOverrides]);
   if (me === undefined) return <div className="main"><Loading /></div>;
   if (!me) return <Login needsSetup={needsSetup} onSignedIn={setMe} />;
+  if (me.mustChangePassword) return <ChoosePassword me={me} onDone={() => setMe({ ...me, mustChangePassword: false })} onSignOut={() => { void api('/auth/logout', { method: 'POST' }).catch(() => {}); setMe(null); }} />;
   return (
     <Routes>
       <Route path="/print/*" element={<Suspense fallback={<Loading />}><PrintView /></Suspense>} />
@@ -73,6 +76,7 @@ function Gate() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/review" element={<Review />} />
           <Route path="/import" element={<ImportWorkbook />} />
+          <Route path="/admin" element={me.role === 'admin' ? <Admin me={me} /> : <div className="page"><h1>Page not found</h1></div>} />
           <Route path="/timetable" element={<Timetable />} />
           <Route path="/classes" element={<Classes />} />
           <Route path="/classes/:id/*" element={<ClassDetail />} />
@@ -105,15 +109,20 @@ const NAV: Array<[string, string, string]> = [
   ['/settings', 'Settings', 'gear'],
 ];
 
+// Pages that belong to a feature an administrator can switch off for an account.
+const NAV_FEATURE: Record<string, string> = { '/pay': 'pay', '/import': 'import' };
+
 function Shell({ me, onSignOut, children }: { me: Me; onSignOut: () => void; children: ReactNode }) {
   const { t, lang, setLang } = useI18n();
-  const nav = useNavigate();
+  const nav = NAV.filter(([to]) => !me.featuresOff?.includes(NAV_FEATURE[to]));
+  if (me.role === 'admin') nav.splice(nav.length - 1, 0, ['/admin', 'Accounts', 'shield']);
+  const go = useNavigate();
   const signOut = async () => {
     await api('/auth/logout', { method: 'POST' }).catch(() => {});
     navigator.serviceWorker?.controller?.postMessage({ type: 'clear-api' });
     clearPrefs();
     onSignOut();
-    nav('/');
+    go('/');
   };
   return (
     <div className="shell">
@@ -121,10 +130,10 @@ function Shell({ me, onSignOut, children }: { me: Me; onSignOut: () => void; chi
         <div className="brand"><span className="brand-mark">Kru<b>Book</b></span><span className="brand-km">សៀវភៅគ្រូ</span></div>
         <nav className="nav">
           <div className="nav-group">
-            {NAV.slice(0, 4).map(([to, label, icon]) => <NavLink key={to} to={to} end={to === '/'}><Icon name={icon} />{t(label)}</NavLink>)}
+            {nav.slice(0, 4).map(([to, label, icon]) => <NavLink key={to} to={to} end={to === '/'}><Icon name={icon} />{t(label)}</NavLink>)}
           </div>
           <div className="nav-group">
-            {NAV.slice(4).map(([to, label, icon]) => <NavLink key={to} to={to}><Icon name={icon} />{t(label)}</NavLink>)}
+            {nav.slice(4).map(([to, label, icon]) => <NavLink key={to} to={to}><Icon name={icon} />{t(label)}</NavLink>)}
           </div>
         </nav>
         <div className="sidebar-foot">
@@ -139,6 +148,7 @@ function Shell({ me, onSignOut, children }: { me: Me; onSignOut: () => void; chi
       </aside>
       <main className="main">
         <SyncProblems />
+        {me.expired && <div className="page" style={{ paddingBottom: 0 }}><Notice tone="warn">Your access ended on {me.accessUntil}. You can still open and export your data, but changes are not saved. Ask the administrator to renew your account.</Notice></div>}
         {children}
       </main>
       <nav className="bottom-nav" aria-label="Main">

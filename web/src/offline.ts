@@ -145,6 +145,13 @@ export function flush(): Promise<void> {
           credentials: 'same-origin',
           body: JSON.stringify({ ops: batch.map(({ key: _k, label: _l, queuedAt: _q, ...rest }) => rest) }),
         });
+        if (res.status === 403) {
+          // The account may not save changes (access ended, or a password change is due): report
+          // these edits as not saved instead of retrying them forever.
+          const message = (await res.json().catch(() => null))?.error ?? 'Your account cannot save changes right now.';
+          for (const op of batch) { await remove('queue', op.key); await put('failures', op.key, { op, message }); }
+          continue;
+        }
         if (!res.ok) {
           if (res.status === 401) window.dispatchEvent(new CustomEvent('krubook:signed-out'));
           throw new Error(`sync ${res.status}`);

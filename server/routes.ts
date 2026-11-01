@@ -1,7 +1,9 @@
 import express, { type Request, type Response, type Router } from 'express';
 import { readFileSync } from 'node:fs';
 import { AppError, translateDbError, type DB, type Row } from './db.ts';
-import { addAccount, checkLoginRate, endSession, requireUser, startSession, verifyPassword, type User } from './auth.ts';
+import { addAccount, checkLoginRate, endSession, requireUser, sessionToken, startSession, verifyPassword, type User } from './auth.ts';
+import * as accounts from './services/accounts.ts';
+import { accessExpired, featureOf, FEATURES } from '../shared/accounts.ts';
 import { classScope, getSetting, payStartDay, ownClass, ownCourse, ownEnrollment, ownLesson, ownPart, ownSession, ownStudent, ownTerm, setSetting, today } from './services/access.ts';
 import * as plan from './services/plan.ts';
 import * as records from './services/records.ts';
@@ -85,6 +87,7 @@ export function buildRouter(holder: DBHolder): Router {
     try {
       const db = holder.db;
       const u = opts.auth === false ? (req.user as User) : requireUser(req);
+      if (opts.auth !== false) guard(req, db, u);
       const out = await fn(req, db, u, res);
       if (!res.headersSent) res.json(out ?? { ok: true });
     } catch (e) {
@@ -96,6 +99,24 @@ export function buildRouter(holder: DBHolder): Router {
       }
     }
   };
+  // Account rules, checked on every signed-in request:
+  // - a temporary password must be changed before anything else;
+  // - a feature switched off for the account is refused;
+  // - after the paid-until date the account is read-only (it can still sign in and look).
+  const ALWAYS = new Set(['/auth/me', '/auth/logout', '/account/password', '/prefs']);
+  function guard(req: Request, db: DB, u: User) {
+    if (ALWAYS.has(req.path)) return;
+    if (u.mustChangePassword) throw new AppError(403, 'Choose your own password first.', { code: 'PASSWORD_CHANGE_REQUIRED' });
+    const f = featureOf(req.path);
+    if (f && u.featuresOff?.includes(f)) throw new AppError(403, `${FEATURES[f].label} is not included in your account. Ask the administrator.`, { code: 'FEATURE_OFF', feature: f });
+    if (req.method !== 'GET' && accessExpired(u.role, u.accessUntil, today(db, u))) {
+      throw new AppError(403, `Your access ended on ${u.accessUntil}. You can still view your data; ask the administrator to renew it to make changes.`, { code: 'ACCESS_EXPIRED' });
+    }
+  }
+  const me = (db: DB, u: User | undefined) => u && ({
+    id: u.id, email: u.email, name: u.name, role: u.role, accessUntil: u.accessUntil ?? null, featuresOff: u.featuresOff ?? [],
+    mustChangePassword: !!u.mustChangePassword, expired: accessExpired(u.role, u.accessUntil, today(db, u)),
+  });
   const get = (p: string, fn: Handler, o?: { auth?: boolean }) => r.get(p, wrap(fn, o));
   const post = (p: string, fn: Handler, o?: { auth?: boolean }) => r.post(p, wrap(fn, o));
   const put = (p: string, fn: Handler) => r.put(p, wrap(fn));
@@ -115,16 +136,18 @@ export function buildRouter(holder: DBHolder): Router {
   // Self-service sign-up is off in production: accounts are created on the server with
   // `krubook-user add` (server/user-cli.ts). Local development keeps the first-run form.
   const signupOpen = () => process.env.NODE_ENV !== 'production' || process.env.KRUBOOK_ALLOW_SIGNUP === '1';
-  get('/auth/me', (req, db) => ({ user: req.user ?? null, needsSetup: signupOpen() && !db.get("SELECT 1 FROM users WHERE password_hash <> '!' LIMIT 1") }), { auth: false });
+  get('/auth/me', (req, db) => ({ user: me(db, req.user) ?? null, needsSetup: signupOpen() && !db.get("SELECT 1 FROM users WHERE password_hash <> '!' LIMIT 1") }), { auth: false });
   post('/auth/login', (req, db, _u, res) => {
     const fail = checkLoginRate(req);
     const row = db.get('SELECT * FROM users WHERE email = ?', String(req.body.email ?? '').trim());
     if (!row || !verifyPassword(String(req.body.password ?? ''), row.password_hash)) { fail(); throw new AppError(401, 'That email and password do not match an account.'); }
+    if (row.status !== 'active') throw new AppError(403, 'This account is suspended. Ask the administrator.');
     startSession(db, req, res, row.id);
+    db.run("UPDATE users SET last_login_at = datetime('now') WHERE id = ?", row.id);
     // Remember the address the app is used at, for links in Telegram reminders.
     const host = req.get('host');
     if (host && /^[a-z0-9.-]+(:\d+)?$/i.test(host)) setSetting(db, row.id, 'app.url', `${req.protocol}://${host}`);
-    return { user: { id: row.id, email: row.email, name: row.name, role: row.role } };
+    return { user: me(db, { id: row.id, email: row.email, name: row.name, role: row.role, accessUntil: row.access_until, featuresOff: JSON.parse(row.features_off || '[]'), mustChangePassword: !!row.must_change_password }) };
   }, { auth: false });
   post('/auth/setup', (req, db, _u, res) => {
     if (!signupOpen()) throw new AppError(403, 'New accounts cannot be created here. Ask the administrator.');
@@ -134,6 +157,15 @@ export function buildRouter(holder: DBHolder): Router {
     return { user: db.get('SELECT id, email, name, role FROM users WHERE id = ?', id) };
   }, { auth: false });
   post('/auth/logout', (req, db, _u, res) => { endSession(db, req, res); return { ok: true }; }, { auth: false });
+
+  // ---- Accounts ------------------------------------------------------------------------------
+  post('/account/password', (req, db, u) => { accounts.changeOwnPassword(db, u, sessionToken(req), req.body ?? {}); return { ok: true }; });
+  get('/admin/accounts', (_req, db, u) => accounts.listAccounts(db, u));
+  post('/admin/accounts', (req, db, u) => accounts.createAccount(db, u, req.body ?? {}));
+  put('/admin/accounts/:id', (req, db, u) => accounts.updateAccount(db, u, num(req.params.id, 'account'), req.body ?? {}));
+  post('/admin/accounts/:id/reset-password', (req, db, u) => accounts.resetPassword(db, u, num(req.params.id, 'account')));
+  post('/admin/accounts/:id/sign-out', (req, db, u) => accounts.signOutEverywhere(db, u, num(req.params.id, 'account')));
+  del('/admin/accounts/:id', (req, db, u) => accounts.deleteAccount(db, u, num(req.params.id, 'account')));
 
   // ---- Settings --------------------------------------------------------------------------
   // Per-account display preferences (language, rows per page, sort orders, views), so they follow the
@@ -669,8 +701,9 @@ export function buildRouter(holder: DBHolder): Router {
   get('/audit', (req, db, u) => {
     const p = readPage(req.query);
     const entity = String(req.query.entity ?? '');
-    const where = `${u.role === 'admin' ? '1' : 'a.user_id = ?'} ${entity ? 'AND a.entity = ?' : ''}`;
-    const params = [...(u.role === 'admin' ? [] : [u.id]), ...(entity ? [entity] : [])];
+    // Your own activity only, for administrators too.
+    const where = `a.user_id = ? ${entity ? 'AND a.entity = ?' : ''}`;
+    const params = [u.id, ...(entity ? [entity] : [])];
     const total = (db.get(`SELECT COUNT(*) AS n FROM audit_log a WHERE ${where}`, ...params) as Row).n;
     const items = db.all(`SELECT a.id, a.entity, a.entity_id, a.action, a.at, u.name AS user_name FROM audit_log a LEFT JOIN users u ON u.id = a.user_id WHERE ${where} ORDER BY a.id DESC LIMIT ? OFFSET ?`, ...params, p.pageSize, p.offset);
     return paged(items, total, p);
@@ -678,7 +711,7 @@ export function buildRouter(holder: DBHolder): Router {
   post('/sync', (req, db, u) => ({ results: records.applySync(db, u, req.body.ops) }));
 
   // ---- Dashboard & pay ---------------------------------------------------------------------
-  get('/dashboard', (_req, db, u) => { checkin.autoRecordTaught(db, u); return reports.dashboard(db, u); });
+  get('/dashboard', (_req, db, u) => { if (!accessExpired(u.role, u.accessUntil, today(db, u))) checkin.autoRecordTaught(db, u); const d = reports.dashboard(db, u); return u.featuresOff?.includes('pay') ? { ...d, month: null, payHidden: true } : d; });
 
   // ---- Reconciliation (review first, then apply) --------------------------------------------
   get('/reconcile/sessions', (_req, db, u) => reconcile.unrecordedSessions(db, u));

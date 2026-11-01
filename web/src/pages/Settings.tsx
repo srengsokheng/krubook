@@ -65,6 +65,8 @@ export function Settings({ me }: { me: Me }) {
         </section>
         )}
 
+        {tab === 'general' && <AccountPanel me={me} />}
+
         {tab === 'general' && (
         <section className="panel">
           <div className="panel-head"><h2>Status names</h2></div>
@@ -118,6 +120,7 @@ export function Settings({ me }: { me: Me }) {
         <section className="panel">
           <div className="panel-head"><h2>Reminders</h2></div>
           <div className="panel-body stack">
+            {me.featuresOff?.includes('reminders') && <Notice tone="warn">Telegram reminders are not included in your account. Ask the administrator.</Notice>}
             <p className="faint xs">Reminders go to Telegram once a day after the time you choose: tomorrow’s classes, materials that are not ready, and labs or exams in the next week. The check-in reminder comes before each class instead. Each reminder is sent once. Email is not supported yet.</p>
             <label className="check"><input type="checkbox" checked={f.notifyEnabled} onChange={(e) => setF({ ...f, notifyEnabled: e.target.checked })} /> Send reminders</label>
             <label className="check"><input type="checkbox" checked={f.notifyCheckin} disabled={!f.notifyEnabled} onChange={(e) => setF({ ...f, notifyCheckin: e.target.checked })} /> Check-in reminder about 10 minutes before each class, with a one-tap check-in link</label>
@@ -220,5 +223,33 @@ function BackupStatus() {
       {line('Nightly copy on this server', data.local, 'no record yet')}
       {line('Off-site copy', data.offsite, 'not configured')}
     </div>
+  );
+}
+
+function AccountPanel({ me }: { me: Me }) {
+  const [f, setF] = useState({ current: '', next: '', again: '' });
+  const { busy, run } = useAction();
+  const toast = useToast();
+  const save = () => {
+    if (f.next !== f.again) { toast('The two new passwords do not match.', 'bad'); return; }
+    void run(() => api('/account/password', { body: { current: f.current, next: f.next } }), 'Password changed. Other devices are signed out.').then((r) => { if (r) setF({ current: '', next: '', again: '' }); });
+  };
+  return (
+    <section className="panel">
+      <div className="panel-head"><h2>Your account</h2></div>
+      <div className="panel-body stack">
+        <dl className="kv">
+          <dt>Signed in as</dt><dd>{me.name} · <span className="mono small">{me.email}</span></dd>
+          <dt>Role</dt><dd>{me.role === 'admin' ? 'Administrator' : 'Teacher'}</dd>
+          {me.role !== 'admin' && <><dt>Access until</dt><dd className="mono small">{me.accessUntil ?? 'no end date'}{me.expired ? ' (ended)' : ''}</dd></>}
+        </dl>
+        <div className="form-grid">
+          <Field label="Current password"><input id="pw-current" type="password" autoComplete="current-password" value={f.current} onChange={(e) => setF({ ...f, current: e.target.value })} /></Field>
+          <Field label="New password" hint="At least 8 characters."><input id="pw-next" type="password" autoComplete="new-password" value={f.next} onChange={(e) => setF({ ...f, next: e.target.value })} /></Field>
+          <Field label="New password again"><input id="pw-again" type="password" autoComplete="new-password" value={f.again} onChange={(e) => setF({ ...f, again: e.target.value })} /></Field>
+        </div>
+        <button className="btn primary" style={{ alignSelf: 'flex-start' }} disabled={busy || !f.current || f.next.length < 8} onClick={save}>Change password</button>
+      </div>
+    </section>
   );
 }

@@ -6,6 +6,7 @@ import { DEFAULT_TZ, durationMinutes, isTime, nowTimeIn } from '../../shared/dat
 import { lateCutPercent, lateMinutes } from '../../shared/pay.ts';
 import { loadLateRule } from './pay.ts';
 import { completeSession } from './plan.ts';
+import { accessExpired } from '../../shared/accounts.ts';
 
 // The teacher's own arrival for a session. "Check in" on the day records the current local time;
 // a time typed in afterwards is kept as a manual entry. A check-in makes the session count as worked
@@ -97,8 +98,9 @@ export function checkinLink(db: DB, u: User, sessionId: number): string | null {
 export function resolveCheckinLink(db: DB, sessionId: number, token: string): { u: User; s: Row } | null {
   const s = db.get('SELECT s.*, c.code, c.teacher_id FROM sessions s JOIN classes c ON c.id = s.class_id WHERE s.id = ?', sessionId);
   if (!s) return null;
-  const u = db.get<User>('SELECT id, email, name, role FROM users WHERE id = ?', s.teacher_id);
-  if (!u) return null;
+  // Links stop working for suspended accounts and, like every change, after the paid-until date.
+  const u = db.get<User & { access_until: string | null }>("SELECT id, email, name, role, access_until FROM users WHERE id = ? AND status = 'active'", s.teacher_id);
+  if (!u || accessExpired(u.role, u.access_until, today(db, u))) return null;
   const want = Buffer.from(sign(db, u.id, s.id)), got = Buffer.from(String(token));
   return want.length === got.length && timingSafeEqual(want, got) ? { u, s } : null;
 }
@@ -138,6 +140,8 @@ export function autoRecordTaught(db: DB, u: User): number[] {
 
 export function autoRecordAll(db: DB) {
   let n = 0;
-  for (const u of db.all<User>('SELECT id, email, name, role FROM users')) n += autoRecordTaught(db, u).length;
+  for (const u of db.all<User & { access_until: string | null }>("SELECT id, email, name, role, access_until FROM users WHERE status = 'active'")) {
+    if (!accessExpired(u.role, u.access_until, today(db, u))) n += autoRecordTaught(db, u).length;
+  }
   return n;
 }

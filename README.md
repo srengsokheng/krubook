@@ -236,6 +236,29 @@ check-in is removed.
   Actual, and what the school paid. A paid amount different from the approved total is flagged there and
   on the month.
 
+## Accounts (several teachers)
+
+Every teacher has their own account, and everything in it (courses, terms, classes, students,
+grades, attendance, check-ins, pay, holidays, settings) is visible only to that teacher.
+**Administrators manage accounts but cannot open other teachers' data**; the admin console shows
+each account's counts only.
+
+**Accounts** (admins only) can:
+- create an account: it gets a readable temporary password, shown once, which the teacher must
+  replace at first sign-in. The national holidays and Cambodia's time zone are set up for it;
+- set **access until**, the last day the teacher can make changes. After it they can still sign in,
+  view and export, but every change is refused until the date is extended ("Extend access by
+  1 month" in the menu). Administrators have no limit;
+- switch features off per account: Pay (rates, payslips), Update from Excel and imports, Excel
+  exports, Telegram reminders. The server refuses those requests and the menu hides them;
+- suspend (signs the teacher out at once and blocks sign-in; data is kept), reactivate, reset the
+  password, sign out everywhere, and delete an account that has no data.
+
+The last administrator cannot be suspended, demoted or deleted, and admins cannot do any of those
+to themselves. Suspended and expired accounts get no reminders or automatic records, and their
+check-in links stop working. Every account change is in the activity log. Rules:
+`server/services/accounts.ts`, `shared/accounts.ts`; schema version 6.
+
 ## Attendance
 
 A roll call is one tick per student: ticked came, unticked did not. Once any student in a session is

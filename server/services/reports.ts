@@ -5,6 +5,7 @@ import { classSummary, orderedParts } from './plan.ts';
 import { gradebook } from './records.ts';
 import { addDays, DEFAULT_TZ, durationMinutes, formatDate, minutesOf, nowTimeIn, todayIn, weekday } from '../../shared/dates.ts';
 import { checkinLink } from './checkin.ts';
+import { accessExpired, parseFeaturesOff } from '../../shared/accounts.ts';
 import { payOverview } from './pay.ts';
 import { lateMinutes, payMonthOf } from '../../shared/pay.ts';
 
@@ -175,9 +176,11 @@ export async function sendTelegram(token: string, chatId: string, text: string):
 
 /** Sends any reminders that are due and have not been sent before. */
 export async function runReminders(db: DB, send: (u: User, text: string) => Promise<void> = defaultSend(db)) {
-  const users = db.all<User>('SELECT id, email, name, role FROM users');
+  // Suspended accounts, expired accounts and accounts without reminders get none.
+  const users = db.all<User & { access_until: string | null; features_off: string }>("SELECT id, email, name, role, access_until, features_off FROM users WHERE status = 'active'");
   let sent = 0;
   for (const u of users) {
+    if (parseFeaturesOff(u.features_off).includes('reminders') || accessExpired(u.role, u.access_until, today(db, u))) continue;
     if (getSetting(db, u.id, 'notify.enabled', '0') !== '1') continue;
     const tz = getSetting(db, u.id, 'timezone', DEFAULT_TZ);
     const at = getSetting(db, u.id, 'notify.time', '18:00');

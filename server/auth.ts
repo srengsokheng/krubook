@@ -2,12 +2,17 @@ import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
 import { AppError, type DB } from './db.ts';
 import { holidayRanges, SOURCE_2026 } from '../shared/holidays.ts';
+import { parseFeaturesOff, type Feature } from '../shared/accounts.ts';
 
 export interface User {
   id: number;
   email: string;
   name: string;
   role: 'admin' | 'teacher';
+  // Set for signed-in requests (see authenticate); absent on users loaded elsewhere.
+  accessUntil?: string | null;
+  featuresOff?: Feature[];
+  mustChangePassword?: boolean;
 }
 
 declare global {
@@ -40,6 +45,19 @@ export function createUser(db: DB, email: string, name: string, password: string
   return db.run('INSERT INTO users (email, name, password_hash, role) VALUES (?,?,?,?)', email.trim(), name.trim(), hashPassword(password), role).id;
 }
 
+/** What every new account starts with: Cambodia's time zone and the national holidays. */
+export function seedAccount(db: DB, id: number) {
+  db.run("INSERT OR IGNORE INTO settings (owner_id, key, value) VALUES (?, 'timezone', 'Asia/Phnom_Penh')", id);
+  for (const h of holidayRanges()) db.run("INSERT OR IGNORE INTO holidays (owner_id, date, end_date, name, name_km, source, approx, verified_note) VALUES (?,?,?,?,?,'national',?,?)", id, h.date, h.endDate, h.name, h.nameKm, h.approx ? 1 : 0, h.date.startsWith('2026') ? SOURCE_2026 : null);
+}
+
+/** A readable temporary password, e.g. "kite-4821-moon"; the teacher must change it at first sign-in. */
+export function temporaryPassword(): string {
+  const words = ['kite', 'moon', 'lotus', 'river', 'mango', 'paper', 'stone', 'cloud', 'tiger', 'ocean', 'pencil', 'garden', 'rice', 'temple', 'star', 'bamboo'];
+  const pick = () => words[randomBytes(1)[0] % words.length];
+  return `${pick()}-${1000 + (randomBytes(2).readUInt16BE(0) % 9000)}-${pick()}`;
+}
+
 /**
  * Creates an administrator account. If imported data is waiting for an owner (an account whose
  * password is '!'), the new login takes over that account and its classes instead.
@@ -53,13 +71,13 @@ export function addAccount(db: DB, email: string, name: string, password: string
     return unclaimed.id;
   }
   const id = createUser(db, email, name, password, 'admin');
-  for (const h of holidayRanges()) db.run("INSERT OR IGNORE INTO holidays (owner_id, date, end_date, name, name_km, source, approx, verified_note) VALUES (?,?,?,?,?,'national',?,?)", id, h.date, h.endDate, h.name, h.nameKm, h.approx ? 1 : 0, h.date.startsWith('2026') ? SOURCE_2026 : null);
+  seedAccount(db, id);
   return id;
 }
 
 export function setPassword(db: DB, email: string, password: string) {
   if (password.length < 8) throw new AppError(422, 'Use a password of at least 8 characters.');
-  const r = db.run('UPDATE users SET password_hash = ? WHERE email = ?', hashPassword(password), email.trim());
+  const r = db.run('UPDATE users SET password_hash = ?, must_change_password = 0 WHERE email = ?', hashPassword(password), email.trim());
   if (!r.changes) throw new AppError(404, `No account with the email ${email}.`);
   db.run('DELETE FROM auth_sessions WHERE user_id = (SELECT id FROM users WHERE email = ?)', email.trim());
 }
@@ -73,6 +91,9 @@ function readCookie(req: Request, name: string): string | null {
   }
   return null;
 }
+
+/** The session token of this request, if it has one. */
+export const sessionToken = (req: Request) => readCookie(req, COOKIE);
 
 const secure = (req: Request) => (req.secure ? '; Secure' : '');
 
@@ -103,11 +124,13 @@ export function authenticate(db: DB) {
   return (req: Request, _res: Response, next: NextFunction) => {
     const token = readCookie(req, COOKIE);
     if (token) {
-      const u = db.get<User>(
-        "SELECT u.id, u.email, u.name, u.role FROM auth_sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ? AND s.expires_at > datetime('now')",
+      // A suspended account's sign-ins stop working at once.
+      const u = db.get<any>(
+        `SELECT u.id, u.email, u.name, u.role, u.access_until, u.features_off, u.must_change_password FROM auth_sessions s JOIN users u ON u.id = s.user_id
+          WHERE s.token = ? AND s.expires_at > datetime('now') AND u.status = 'active'`,
         token,
       );
-      if (u) req.user = u;
+      if (u) req.user = { id: u.id, email: u.email, name: u.name, role: u.role, accessUntil: u.access_until, featuresOff: parseFeaturesOff(u.features_off), mustChangePassword: !!u.must_change_password };
     }
     next();
   };

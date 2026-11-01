@@ -114,7 +114,7 @@ export function Dashboard() {
             ) : <div className="panel-body faint small">No labs or exams in the next three weeks.</div>}
           </section>
 
-          <section className="panel">
+          {!d.payHidden && <section className="panel">
             <div className="panel-head"><h2>This pay month</h2><Link className="small" to="/pay">Pay</Link></div>
             {m && <div className="panel-body" style={{ paddingBottom: 0 }}><PayMonth month={m.month} from={m.from} to={m.to} /></div>}
             <dl className="kv panel-body">
@@ -123,7 +123,7 @@ export function Dashboard() {
               <dt>Earned so far</dt><dd className="mono">{money(m?.total ?? 0, d.currency)}{m?.deductions > 0 && <span className="faint"> · −{money(m.deductions, d.currency)} late</span>}</dd>
               <dt>Expected</dt><dd className="mono">{money(m?.expectedTotal ?? 0, d.currency)} <span className="faint">· {((m?.scheduledMinutes ?? 0) / 60).toFixed(1)} h scheduled</span></dd>
             </dl>
-          </section>
+          </section>}
 
           {d.atRisk.length > 0 && (
             <section className="panel">

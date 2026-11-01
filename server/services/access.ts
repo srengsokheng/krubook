@@ -3,10 +3,9 @@ import type { User } from '../auth.ts';
 import { DEFAULT_TZ, todayIn } from '../../shared/dates.ts';
 import { DEFAULT_PAY_START_DAY } from '../../shared/pay.ts';
 
-// Every lookup is scoped to the signed-in teacher. Admins can see everything. A record that exists
-// but belongs to someone else is reported as "not found" so IDs cannot be probed.
-
-const isAdmin = (u: User) => u.role === 'admin';
+// Every lookup is scoped to the signed-in teacher, administrators included: an admin manages
+// accounts (server/services/accounts.ts) but cannot open another teacher's data. A record that
+// exists but belongs to someone else is reported as "not found" so IDs cannot be probed.
 
 function found(row: Row | undefined, what: string): Row {
   if (!row) throw new AppError(404, `${what} not found.`);
@@ -14,19 +13,19 @@ function found(row: Row | undefined, what: string): Row {
 }
 
 export function ownCourse(db: DB, u: User, id: number): Row {
-  return found(db.get('SELECT * FROM courses WHERE id = ? AND (owner_id = ? OR ?)', id, u.id, isAdmin(u) ? 1 : 0), 'Course');
+  return found(db.get('SELECT * FROM courses WHERE id = ? AND owner_id = ?', id, u.id), 'Course');
 }
 
 export function ownTerm(db: DB, u: User, id: number): Row {
-  return found(db.get('SELECT * FROM terms WHERE id = ? AND (owner_id = ? OR ?)', id, u.id, isAdmin(u) ? 1 : 0), 'Term');
+  return found(db.get('SELECT * FROM terms WHERE id = ? AND owner_id = ?', id, u.id), 'Term');
 }
 
 export function ownClass(db: DB, u: User, id: number): Row {
-  return found(db.get('SELECT * FROM classes WHERE id = ? AND (teacher_id = ? OR ?)', id, u.id, isAdmin(u) ? 1 : 0), 'Class');
+  return found(db.get('SELECT * FROM classes WHERE id = ? AND teacher_id = ?', id, u.id), 'Class');
 }
 
 export function ownStudent(db: DB, u: User, id: number): Row {
-  return found(db.get('SELECT * FROM students WHERE id = ? AND (owner_id = ? OR ?)', id, u.id, isAdmin(u) ? 1 : 0), 'Student');
+  return found(db.get('SELECT * FROM students WHERE id = ? AND owner_id = ?', id, u.id), 'Student');
 }
 
 export function ownSession(db: DB, u: User, id: number): Row {
@@ -54,7 +53,7 @@ export function ownPart(db: DB, u: User, id: number): Row {
 }
 
 export function classScope(u: User): { where: string; params: number[] } {
-  return isAdmin(u) ? { where: '1', params: [] } : { where: 'c.teacher_id = ?', params: [u.id] };
+  return { where: 'c.teacher_id = ?', params: [u.id] };
 }
 
 export function getSetting(db: DB, ownerId: number, key: string, fallback: string): string {
