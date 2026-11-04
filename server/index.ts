@@ -2,10 +2,12 @@ import { join, resolve } from 'node:path';
 import { createApp, createHolder } from './app.ts';
 import { runReminders } from './services/reports.ts';
 import { autoRecordAll } from './services/checkin.ts';
+import { runDataFixes } from './fixes.ts';
 
 const file = resolve(process.env.KRUBOOK_DB ?? 'data/krubook.sqlite');
 const port = Number(process.env.PORT ?? 4310);
 const holder = createHolder(file);
+try { runDataFixes(holder.db); } catch (e) { console.error('Data fix failed (nothing from it was saved):', (e as Error).message); }
 const app = createApp(holder, { staticDir: process.env.NODE_ENV === 'production' ? join(import.meta.dirname, '..', 'web', 'dist') : undefined });
 
 // In production only nginx on this machine talks to the app, so it listens on loopback only.
