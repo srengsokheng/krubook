@@ -21,7 +21,12 @@ import { lateDeduction, lateMinutes, parseLateRule, payMonthOf, payPeriod, resol
 // were approved with.
 //
 // Each month also shows what it is worth if everything scheduled runs: every session in the pay
-// period that is not cancelled (holidays cancel sessions), at full rate and scheduled length.
+// period that is not cancelled, at full rate and scheduled length.
+//
+// Holidays: a session on one of the teacher's holidays is never paid or expected, even if it was
+// recorded as taught (e.g. imported from the old workbook before the holiday was entered), unless
+// it is marked as taught on a holiday (holiday_exception) or has a check-in. Approved statements
+// keep what they were approved with.
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -31,6 +36,19 @@ export function loadRates(db: DB, ownerId: number, includeInactive = false): Arr
     id: r.id, classId: r.class_id, courseId: r.course_id, mode: r.mode, amount: r.amount, effectiveFrom: r.effective_from, currency: r.currency, active: !!r.active,
   }));
 }
+
+export interface HolidaySpan { from: string; to: string; name: string; termId: number | null }
+export function loadHolidays(db: DB, ownerId: number): HolidaySpan[] {
+  return db.all('SELECT date, COALESCE(end_date, date) AS end_date, name, term_id FROM holidays WHERE owner_id = ?', ownerId)
+    .map((h) => ({ from: h.date, to: h.end_date, name: h.name, termId: h.term_id }));
+}
+/** The holiday a session's date falls on (for its class's term), if any. */
+export function holidayOn(hs: HolidaySpan[], date: string, termId: number | null): HolidaySpan | null {
+  return hs.find((h) => date >= h.from && date <= h.to && (h.termId == null || h.termId === termId)) ?? null;
+}
+/** True when a session on a holiday is not paid: not marked as taught on a holiday and no check-in. */
+export const unpaidHoliday = (hs: HolidaySpan[], s: Row) =>
+  !s.holiday_exception && !s.checkin && !!holidayOn(hs, s.date, s.term_id);
 
 export function loadLateRule(db: DB, ownerId: number): LateRule {
   return parseLateRule(getSetting(db, ownerId, 'pay.lateRule', ''));
@@ -62,7 +80,7 @@ export function payLines(db: DB, u: User, from: string, to: string): PayLine[] {
   const rates = loadRates(db, u.id);
   const rule = loadLateRule(db, u.id);
   const rows = db.all(
-    `SELECT s.id, s.class_id, s.date, s.start_time, s.end_time, s.is_makeup, c.code, c.course_id, co.name AS course_name, r.id AS record_id, r.minutes, k.time AS checkin,
+    `SELECT s.id, s.class_id, s.date, s.start_time, s.end_time, s.is_makeup, s.holiday_exception, c.code, c.course_id, c.term_id, co.name AS course_name, r.id AS record_id, r.minutes, k.time AS checkin,
             l.statement_id, l.minutes AS line_minutes, l.rate_mode, l.rate_amount, l.amount AS line_amount, l.late_minutes, l.deduction AS line_deduction, ps.status AS statement_status
        FROM sessions s
        JOIN classes c ON c.id = s.class_id
@@ -76,7 +94,8 @@ export function payLines(db: DB, u: User, from: string, to: string): PayLine[] {
       ORDER BY s.date, s.start_time, s.id`,
     u.id, from, to, today(db, u),
   );
-  return rows.map((x) => {
+  const hs = loadHolidays(db, u.id);
+  return rows.filter((x) => x.statement_id || !unpaidHoliday(hs, x)).map((x) => {
     if (x.statement_id) {
       return { sessionId: x.id, date: x.date, start: x.start_time, classId: x.class_id, code: x.code, courseName: x.course_name, minutes: x.line_minutes, isMakeup: !!x.is_makeup, rate: rateLabel(x.rate_mode, x.rate_amount), recorded: x.record_id != null, checkin: x.checkin, late: x.late_minutes, deduction: x.line_deduction, amount: x.line_amount, statementId: x.statement_id, statementStatus: x.statement_status };
     }
@@ -149,11 +168,15 @@ export function payOverview(db: DB, u: User, year: string) {
   // Everything scheduled (holidays and other cancellations excluded) at full rate: what the month is
   // worth if every session runs. Planned sessions still ahead are also shown as "expected".
   const scheduled = db.all(
-    `SELECT s.date, s.start_time, s.end_time, s.status, s.class_id, c.course_id FROM sessions s JOIN classes c ON c.id = s.class_id
+    `SELECT s.id, s.date, s.start_time, s.end_time, s.status, s.holiday_exception, s.class_id, c.course_id, c.term_id, k.time AS checkin,
+            EXISTS (SELECT 1 FROM pay_statement_lines l WHERE l.session_id = s.id) AS on_statement
+       FROM sessions s JOIN classes c ON c.id = s.class_id LEFT JOIN checkins k ON k.session_id = s.id
       WHERE c.teacher_id = ? AND s.status IN ('planned','completed') AND s.date BETWEEN ? AND ?`,
     u.id, from, to,
   );
+  const hs = loadHolidays(db, u.id);
   for (const p of scheduled) {
+    if (!p.on_statement && unpaidHoliday(hs, p)) continue;
     const m = get(payMonthOf(p.date, sd));
     const minutes = durationMinutes(p.start_time, p.end_time);
     const full = sessionPay(resolveRate(rates, { classId: p.class_id, courseId: p.course_id, date: p.date }), minutes);
@@ -162,12 +185,9 @@ export function payOverview(db: DB, u: User, year: string) {
     m.scheduledPay += full;
     if (p.status === 'planned' && p.date >= now) { m.plannedSessions++; m.expected += full; }
   }
-  // Past sessions with neither a teaching record nor a check-in are not paid until decided.
-  const unrecorded = (db.get(
-    `SELECT COUNT(*) AS n FROM sessions s JOIN classes c ON c.id = s.class_id WHERE c.teacher_id = ? AND s.status = 'planned' AND s.date < ? AND s.date BETWEEN ? AND ?
-       AND NOT EXISTS (SELECT 1 FROM checkins k WHERE k.session_id = s.id)`,
-    u.id, now, from, to,
-  ) as Row).n;
+  // Past sessions with neither a teaching record nor a check-in (and not on a holiday) are not paid
+  // until decided.
+  const unrecorded = scheduled.filter((p) => p.status === 'planned' && p.date < now && !p.checkin && !p.on_statement && !unpaidHoliday(hs, p)).length;
   const list = [...months.values()].map((m) => ({ ...m, estimated: r2(m.estimated), deductions: r2(m.deductions), approved: r2(m.approved), paid: r2(m.paid), expected: r2(m.expected), scheduledPay: r2(m.scheduledPay), adjustments: r2(m.adjustments), expectedTotal: r2(m.scheduledPay + m.adjustments), total: r2(m.total + m.estimated) })).sort((a, b) => a.month.localeCompare(b.month));
   const sum = (k: keyof MonthSummary) => r2(list.reduce((s, m) => s + (m[k] as number), 0));
   return {
@@ -302,18 +322,21 @@ export function payslip(db: DB, u: User, month: string) {
   const rates = loadRates(db, u.id);
   const worked = new Map(payLines(db, u, from, to).map((l) => [l.sessionId, l]));
   const sessions = db.all(
-    `SELECT s.id, s.date, s.start_time, s.end_time, s.status, s.note, s.kind, s.class_id, c.code, c.course_id FROM sessions s JOIN classes c ON c.id = s.class_id
+    `SELECT s.id, s.date, s.start_time, s.end_time, s.status, s.note, s.kind, s.class_id, s.holiday_exception, c.code, c.course_id, c.term_id, k.time AS checkin
+       FROM sessions s JOIN classes c ON c.id = s.class_id LEFT JOIN checkins k ON k.session_id = s.id
       WHERE c.teacher_id = ? AND s.date BETWEEN ? AND ? AND s.status <> 'moved' ORDER BY s.date, s.start_time, s.id`,
     u.id, from, to,
   );
+  const hs = loadHolidays(db, u.id);
   const rows = sessions.map((s) => {
     const minutes = durationMinutes(s.start_time, s.end_time);
     const full = sessionPay(resolveRate(rates, { classId: s.class_id, courseId: s.course_id, date: s.date }), minutes);
     const l = worked.get(s.id);
-    const state = l ? 'worked' : s.status === 'cancelled' || s.status === 'skipped' ? 'not held' : s.date >= now ? 'planned' : 'not recorded';
+    const holiday = !l && unpaidHoliday(hs, s) ? holidayOn(hs, s.date, s.term_id) : null;
+    const state = l ? 'worked' : holiday || s.status === 'cancelled' || s.status === 'skipped' ? 'not held' : s.date >= now ? 'planned' : 'not recorded';
     return {
       sessionId: s.id, date: s.date, start: s.start_time, end: s.end_time, code: s.code, kind: s.kind, state,
-      reason: state === 'not held' ? s.note : null,
+      reason: state !== 'not held' ? null : holiday && s.status !== 'cancelled' ? `Holiday: ${holiday.name}${s.status === 'completed' ? ' (recorded as taught, not paid)' : ''}` : s.note,
       scheduledMinutes: minutes, fullPay: state === 'not held' ? 0 : full,
       minutes: l?.minutes ?? null, checkin: l?.checkin ?? null, late: l?.late ?? 0, cut: l?.deduction ?? 0, amount: l?.amount ?? 0,
       statementStatus: l?.statementStatus ?? null,

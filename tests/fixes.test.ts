@@ -82,3 +82,39 @@ describe('data fix 2026-11-04: attended since 16 Oct, one late arrival', () => {
     expect(JSON.parse(db.get("SELECT result FROM data_fixes")!.result)).toEqual({ skipped: 'no single administrator with classes' });
   });
 });
+
+describe('holidays and pay', () => {
+  it('a class on a holiday is not paid, even if recorded as taught, unless marked or checked in', async () => {
+    const { payOverview, payslip } = await import('../server/services/pay.ts');
+    process.env.KRUBOOK_TODAY = '2026-10-20';
+    try {
+      const taughtOnHoliday = session('2026-10-13', '13:00', '14:30');
+      const exception = session('2026-10-14', '13:00', '14:30');
+      const checked = session('2026-10-09', '13:00', '14:30');
+      const normal = session('2026-10-08', '13:00', '14:30');
+      for (const id of [taughtOnHoliday, exception, normal]) {
+        db.run("INSERT INTO teaching_records (session_id, taught_on, minutes) VALUES (?, (SELECT date FROM sessions WHERE id = ?), 90)", id, id);
+        db.run("UPDATE sessions SET status = 'completed' WHERE id = ?", id);
+      }
+      db.run('UPDATE sessions SET holiday_exception = 1 WHERE id = ?', exception);
+      db.run("INSERT INTO checkins (session_id, time, source) VALUES (?, '13:00', 'manual')", checked);
+      db.run("INSERT INTO holidays (owner_id, date, end_date, name, source) VALUES (?, '2026-10-09', '2026-10-15', 'Pchum Ben Festival', 'user')", u.id);
+
+      expect(payLines(db, u, '2026-09-16', '2026-10-15').map((l) => l.date)).toEqual(['2026-10-08', '2026-10-09', '2026-10-14']);
+      const oct = payOverview(db, u, '2026').months.find((m) => m.month === '2026-10')!;
+      expect(oct).toMatchObject({ scheduledSessions: 3, scheduledPay: 40.5, total: 40.5, taughtSessions: 3 });
+      const slip = payslip(db, u, '2026-10');
+      expect(slip.rows.find((r: any) => r.sessionId === taughtOnHoliday)).toMatchObject({ state: 'not held', reason: 'Holiday: Pchum Ben Festival (recorded as taught, not paid)', amount: 0 });
+    } finally { process.env.KRUBOOK_TODAY = '2026-11-04'; }
+  });
+
+  it('the attendance fix leaves classes on holidays alone', () => {
+    db.run("INSERT INTO holidays (owner_id, date, name, source) VALUES (?, '2026-10-27', 'Closed', 'user')", u.id);
+    const closed = session('2026-10-27', '13:00', '14:30');
+    process.env.KRUBOOK_NOW_TIME = '12:00';
+    runDataFixes(db);
+    expect(checkin(closed)).toBeUndefined();
+    expect(status(closed)).toBe('planned');
+    expect(JSON.parse(db.get("SELECT result FROM data_fixes")!.result)).toMatchObject({ holiday: 1 });
+  });
+});

@@ -214,6 +214,11 @@ recorded as taught. Minutes after the scheduled start are late, and the late rul
 cuts that session's pay in steps. The default: up to 10 minutes late, no cut; 11 to 29 minutes, half;
 30 minutes or more, the whole session. The highest step reached applies.
 
+**Holidays are not paid.** A class on one of your holidays (Settings › Holidays) earns nothing and
+is left out of Expected, even if it was recorded as taught (for example imported from the workbook
+before the holiday was entered), unless it is marked as taught on a holiday or has a check-in. The
+payslip lists it as "Not held: Holiday: …". Approved statements keep what they were approved with.
+
 Each pay month shows two figures. **Expected** is every session scheduled in the period that is not
 cancelled (holidays cancel sessions), at full rate and scheduled length, plus adjustments. **Actual**
 is what was worked, after late cuts, plus adjustments. An approved statement stores each session's

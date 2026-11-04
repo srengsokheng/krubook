@@ -4,6 +4,7 @@
 import type { DB, Row } from './db.ts';
 import type { User } from './auth.ts';
 import { completeSession } from './services/plan.ts';
+import { loadHolidays, unpaidHoliday } from './services/pay.ts';
 import { getSetting, today } from './services/access.ts';
 import { DEFAULT_TZ, durationMinutes, nowTimeIn } from '../shared/dates.ts';
 
@@ -27,14 +28,17 @@ const FIXES: Fix[] = [
       const now = today(db, u);
       const time = process.env.KRUBOOK_NOW_TIME ?? nowTimeIn(getSetting(db, u.id, 'timezone', DEFAULT_TZ));
       const sessions = db.all(
-        `SELECT s.* FROM sessions s JOIN classes c ON c.id = s.class_id
+        `SELECT s.*, c.term_id FROM sessions s JOIN classes c ON c.id = s.class_id
           WHERE c.teacher_id = ? AND s.status IN ('planned','completed') AND s.date BETWEEN '2026-10-16' AND ?
             AND (s.date < ? OR s.end_time <= ?)
           ORDER BY s.date, s.start_time`,
         u.id, now, now, time,
       );
-      const out = { recorded: 0, checkedIn: 0, late: 0, alreadyCheckedIn: 0, locked: 0, failed: [] as string[] };
+      const out = { recorded: 0, checkedIn: 0, late: 0, alreadyCheckedIn: 0, locked: 0, holiday: 0, failed: [] as string[] };
+      const hs = loadHolidays(db, u.id);
       for (const s of sessions as Row[]) {
+        // A class on a holiday was not taught (the school was closed): leave it alone.
+        if (unpaidHoliday(hs, { ...s, checkin: db.get('SELECT time FROM checkins WHERE session_id = ?', s.id)?.time })) { out.holiday++; continue; }
         const locked = !!db.get('SELECT 1 FROM pay_statement_lines WHERE session_id = ?', s.id);
         if (locked) { out.locked++; continue; }
         try {
