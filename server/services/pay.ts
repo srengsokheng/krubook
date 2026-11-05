@@ -177,7 +177,7 @@ function breakdowns(db: DB, u: User, from: string, to: string, lines: PayLine[],
     const held = s.status === 'planned' || s.status === 'completed';
     const holidayName = held
       ? (unpaidHoliday(hs, s) ? holidayOn(hs, s.date, s.term_id)?.name : null)
-      : /^Holiday:/.test(s.note ?? '') ? String(s.note).replace(/^Holiday:\s*/, '') : null;
+      : /^Holiday:/.test(s.note ?? '') && holidayOn(hs, s.date, s.term_id) ? String(s.note).replace(/^Holiday:\s*/, '') : null;
     if (holidayName) {
       let h = b.holidays.find((x) => x.name === holidayName);
       if (!h) b.holidays.push((h = { name: holidayName, sessions: 0, minutes: 0, pay: 0 }));
@@ -412,7 +412,8 @@ export function payslip(db: DB, u: User, month: string) {
     const state = l ? 'worked' : holiday || s.status === 'cancelled' || s.status === 'skipped' ? 'not held' : s.date >= now ? 'planned' : 'not recorded';
     return {
       sessionId: s.id, date: s.date, start: s.start_time, end: s.end_time, code: s.code, kind: s.kind, state,
-      reason: state !== 'not held' ? null : holiday && s.status !== 'cancelled' ? `Holiday: ${holiday.name}${s.status === 'completed' ? ' (recorded as taught, not paid)' : ''}` : s.note,
+      reason: state !== 'not held' ? null : holiday && s.status !== 'cancelled' ? `Holiday: ${holiday.name}${s.status === 'completed' ? ' (recorded as taught, not paid)' : ''}`
+        : /^Holiday:/.test(s.note ?? '') && !holidayOn(hs, s.date, s.term_id) ? 'Cancelled for a holiday that is no longer on your list. Use “Check classes against holidays” to restore it.' : s.note,
       scheduledMinutes: minutes, fullPay: state === 'not held' ? 0 : full,
       minutes: l?.minutes ?? null, checkin: l?.checkin ?? null, late: l?.late ?? 0, cut: l?.deduction ?? 0, amount: l?.amount ?? 0,
       statementStatus: l?.statementStatus ?? null,

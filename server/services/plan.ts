@@ -151,6 +151,37 @@ export function describeProposal(db: DB, classId: number, payload: Row) {
   };
 }
 
+/**
+ * Classes that were cancelled for a holiday which no longer covers their date (the holiday was
+ * shortened, moved or deleted) become planned again, so they can be taught, recorded and paid.
+ * Each affected class then gets a schedule proposal to re-flow its lessons.
+ */
+export function restoreStaleHolidayCancellations(db: DB, u: User): Array<{ sessionId: number; classId: number; date: string; was: string }> {
+  const rows = db.all(
+    `SELECT s.id, s.class_id, s.date, s.note, c.term_id FROM sessions s JOIN classes c ON c.id = s.class_id
+      WHERE c.teacher_id = ? AND s.status = 'cancelled' AND s.note LIKE 'Holiday:%'`,
+    u.id,
+  );
+  const byTerm = new Map<number, Set<string>>();
+  const daysOf = (termId: number) => {
+    if (!byTerm.has(termId)) byTerm.set(termId, new Set(holidaysFor(db, u.id, termId).map((h) => h.date)));
+    return byTerm.get(termId)!;
+  };
+  const restored = rows.filter((r) => !daysOf(r.term_id).has(r.date)).map((r) => ({ sessionId: r.id as number, classId: r.class_id as number, date: r.date as string, was: r.note as string }));
+  if (!restored.length) return [];
+  db.tx(() => {
+    for (const r of restored) {
+      db.run("UPDATE sessions SET status = 'planned', note = NULL, holiday_exception = 0, version = version + 1, updated_at = datetime('now') WHERE id = ?", r.sessionId);
+      db.audit(u.id, 'session', r.sessionId, 'restore', { status: 'cancelled', note: r.was }, { status: 'planned', reason: 'holiday no longer covers this date' });
+    }
+  });
+  for (const classId of new Set(restored.map((r) => r.classId))) {
+    const first = restored.filter((r) => r.classId === classId).map((r) => r.date).sort()[0];
+    try { createProposal(db, u, classId, 'Classes restored: their holiday no longer covers them', first); } catch { /* an archived class needs no re-plan */ }
+  }
+  return restored;
+}
+
 export function createProposal(db: DB, u: User, classId: number, reason: string, from?: ISODate) {
   const cls = ownClass(db, u, classId);
   const ctx = context(db, cls);

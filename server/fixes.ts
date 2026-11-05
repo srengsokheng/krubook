@@ -3,7 +3,7 @@
 // that cannot tell exactly whose data it is for changes nothing and records why.
 import type { DB, Row } from './db.ts';
 import type { User } from './auth.ts';
-import { completeSession } from './services/plan.ts';
+import { completeSession, restoreStaleHolidayCancellations } from './services/plan.ts';
 import { loadHolidays, unpaidHoliday } from './services/pay.ts';
 import { getSetting, today } from './services/access.ts';
 import { DEFAULT_TZ, durationMinutes, nowTimeIn } from '../shared/dates.ts';
@@ -15,6 +15,41 @@ function owner(db: DB): User | null {
   const rows = db.all<User>(`SELECT u.id, u.email, u.name, u.role FROM users u WHERE u.role = 'admin' AND u.status = 'active' AND u.password_hash <> '!'
     AND EXISTS (SELECT 1 FROM classes c WHERE c.teacher_id = u.id)`);
   return rows.length === 1 ? rows[0] : null;
+}
+
+/**
+ * Records each past session as taught (planned lesson part, full length) and checked in on time,
+ * except Sat 24 Oct 13:00, checked in at 13:35 (35 min late). Classes on a holiday and classes on
+ * an approved statement are left alone; a session already checked in keeps its check-in.
+ */
+function recordAttended(db: DB, u: User, sessions: Row[], note: string) {
+  const out = { recorded: 0, checkedIn: 0, late: 0, alreadyCheckedIn: 0, locked: 0, holiday: 0, failed: [] as string[] };
+  const hs = loadHolidays(db, u.id);
+  for (const s of sessions) {
+    // A class on a holiday was not taught (the school was closed): leave it alone.
+    if (unpaidHoliday(hs, { ...s, checkin: db.get('SELECT time FROM checkins WHERE session_id = ?', s.id)?.time })) { out.holiday++; continue; }
+    if (db.get('SELECT 1 FROM pay_statement_lines WHERE session_id = ?', s.id)) { out.locked++; continue; }
+    try {
+      if (s.status === 'planned') {
+        completeSession(db, u, s.id, {
+          parts: s.part_id && s.activity === 'lesson' ? [{ partId: s.part_id, coverage: 'full' }] : [],
+          minutes: durationMinutes(s.start_time, s.end_time),
+          notes: note,
+        });
+        out.recorded++;
+      }
+      if (db.get('SELECT 1 FROM checkins WHERE session_id = ?', s.id)) { out.alreadyCheckedIn++; continue; }
+      const late = s.date === '2026-10-24' && s.start_time === '13:00';
+      const at = late ? '13:35' : s.start_time;
+      db.run("INSERT INTO checkins (session_id, time, source, note, created_by) VALUES (?, ?, 'manual', ?, ?)", s.id, at, late ? 'Added on request: arrived 35 minutes late' : 'Added on request: on time', u.id);
+      db.audit(u.id, 'checkin', s.id, 'create', undefined, { time: at, source: 'manual', fix: 'owner request' });
+      out.checkedIn++;
+      if (late) out.late++;
+    } catch (e) {
+      out.failed.push(`${s.date} ${s.start_time}: ${(e as Error).message}`);
+    }
+  }
+  return out;
 }
 
 const FIXES: Fix[] = [
@@ -34,34 +69,21 @@ const FIXES: Fix[] = [
           ORDER BY s.date, s.start_time`,
         u.id, now, now, time,
       );
-      const out = { recorded: 0, checkedIn: 0, late: 0, alreadyCheckedIn: 0, locked: 0, holiday: 0, failed: [] as string[] };
-      const hs = loadHolidays(db, u.id);
-      for (const s of sessions as Row[]) {
-        // A class on a holiday was not taught (the school was closed): leave it alone.
-        if (unpaidHoliday(hs, { ...s, checkin: db.get('SELECT time FROM checkins WHERE session_id = ?', s.id)?.time })) { out.holiday++; continue; }
-        const locked = !!db.get('SELECT 1 FROM pay_statement_lines WHERE session_id = ?', s.id);
-        if (locked) { out.locked++; continue; }
-        try {
-          if (s.status === 'planned') {
-            completeSession(db, u, s.id, {
-              parts: s.part_id && s.activity === 'lesson' ? [{ partId: s.part_id, coverage: 'full' }] : [],
-              minutes: durationMinutes(s.start_time, s.end_time),
-              notes: 'Recorded on request: attended (16 Oct – 4 Nov).',
-            });
-            out.recorded++;
-          }
-          if (db.get('SELECT 1 FROM checkins WHERE session_id = ?', s.id)) { out.alreadyCheckedIn++; continue; }
-          const late = s.date === '2026-10-24' && s.start_time === '13:00';
-          const at = late ? '13:35' : s.start_time;
-          db.run("INSERT INTO checkins (session_id, time, source, note, created_by) VALUES (?, ?, 'manual', ?, ?)", s.id, at, late ? 'Added on request: arrived 35 minutes late' : 'Added on request: on time', u.id);
-          db.audit(u.id, 'checkin', s.id, 'create', undefined, { time: at, source: 'manual', fix: '2026-11-04' });
-          out.checkedIn++;
-          if (late) out.late++;
-        } catch (e) {
-          out.failed.push(`${s.date} ${s.start_time}: ${(e as Error).message}`);
-        }
-      }
-      return out;
+      return recordAttended(db, u, sessions as Row[], 'Recorded on request: attended (16 Oct – 4 Nov).');
+    },
+  },
+  {
+    // 5 Nov 2026: classes cancelled for an earlier, longer version of the Pchum Ben range (e.g. Thu
+    // 22 Oct SW34) stayed cancelled after the range was corrected to 9–15 Oct. Restore every class
+    // whose holiday no longer covers it; those from 16 Oct to 4 Nov were taught, on time.
+    name: '2026-11-05-restore-classes-after-holiday-change',
+    run(db) {
+      const u = owner(db);
+      if (!u) return { skipped: 'no single administrator with classes' };
+      const restored = restoreStaleHolidayCancellations(db, u);
+      const ids = restored.filter((r) => r.date >= '2026-10-16' && r.date <= '2026-11-04').map((r) => r.sessionId);
+      const sessions = ids.length ? db.all(`SELECT s.*, c.term_id FROM sessions s JOIN classes c ON c.id = s.class_id WHERE s.id IN (${ids.join(',')}) ORDER BY s.date, s.start_time`) : [];
+      return { restored: restored.map((r) => `${r.date} (${r.was})`), ...recordAttended(db, u, sessions, 'Recorded on request: restored after the holiday was corrected; attended.') };
     },
   },
 ];

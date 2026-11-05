@@ -154,3 +154,62 @@ describe('pay breakdown', () => {
     expect(payslip(db, u, '2026-11').breakdown).toEqual(m.breakdown);
   });
 });
+
+describe('classes cancelled for a holiday that was later shortened', () => {
+  const cancelled = (date: string, note: string) => db.run(
+    "INSERT INTO sessions (class_id, week, date, start_time, end_time, kind, status, note, original_date) VALUES (?, 1, ?, '16:15', '17:15', 'lecture', 'cancelled', ?, ?)", cls, date, note, date,
+  ).id;
+
+  it('are restored when the holiday no longer covers them, and the payslip explains them until then', async () => {
+    const { payslip } = await import('../server/services/pay.ts');
+    const { restoreStaleHolidayCancellations } = await import('../server/services/plan.ts');
+    db.run("INSERT INTO holidays (owner_id, date, end_date, name, source) VALUES (?, '2026-10-09', '2026-10-15', 'Pchum Ben Festival', 'user')", u.id);
+    const inside = cancelled('2026-10-13', 'Holiday: Pchum Ben Festival');
+    const stale = cancelled('2026-10-22', 'Holiday: Pchum Ben Festival');
+    const sick = cancelled('2026-10-23', 'Teacher sick');
+    expect(payslip(db, u, '2026-11').rows.find((r: any) => r.sessionId === stale)?.reason).toMatch(/no longer on your list/);
+    expect(payslip(db, u, '2026-11').breakdown.holidays).toEqual([]); // not counted as Pchum Ben
+    expect(restoreStaleHolidayCancellations(db, u).map((r) => r.sessionId)).toEqual([stale]);
+    expect([inside, stale, sick].map(status)).toEqual(['cancelled', 'planned', 'cancelled']);
+    expect(db.get('SELECT note FROM sessions WHERE id = ?', stale)!.note).toBeNull();
+  });
+
+  it('the data fix restores them and records 16 Oct – 4 Nov as taught and on time', () => {
+    db.run("INSERT INTO holidays (owner_id, date, end_date, name, source) VALUES (?, '2026-10-09', '2026-10-15', 'Pchum Ben Festival', 'user')", u.id);
+    const stale = cancelled('2026-10-22', 'Holiday: Pchum Ben Festival');
+    const later = cancelled('2026-11-12', 'Holiday: Something removed');
+    process.env.KRUBOOK_NOW_TIME = '12:00';
+    runDataFixes(db);
+    expect(status(stale)).toBe('completed');
+    expect(checkin(stale)).toEqual({ time: '16:15', source: 'manual' });
+    expect(status(later)).toBe('planned'); // restored, but in the future: not recorded
+    expect(checkin(later)).toBeUndefined();
+    const r = JSON.parse(db.get("SELECT result FROM data_fixes WHERE name = '2026-11-05-restore-classes-after-holiday-change'")!.result);
+    expect(r).toMatchObject({ restored: ['2026-10-22 (Holiday: Pchum Ben Festival)', '2026-11-12 (Holiday: Something removed)'], recorded: 1, checkedIn: 1 });
+  });
+
+  it('shortening a holiday in Settings restores its days at once', async () => {
+    const { createApp, createHolder } = await import('../server/app.ts');
+    const { mkdtempSync, rmSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const dir = mkdtempSync(join(tmpdir(), 'krubook-hol-'));
+    const holder = createHolder(join(dir, 'h.sqlite'));
+    const hdb = holder.db;
+    const id = addAccount(hdb, 'h@example.test', 'H', 'h-pass-123');
+    const course = hdb.run("INSERT INTO courses (owner_id, code, name) VALUES (?, 'C', 'C')", id).id;
+    const term = hdb.run("INSERT INTO terms (owner_id, name, start_date, end_date) VALUES (?, 'T', '2026-09-01', '2027-01-31')", id).id;
+    const c = hdb.run("INSERT INTO classes (term_id, course_id, teacher_id, code, start_date, status) VALUES (?, ?, ?, 'K', '2026-09-01', 'active')", term, course, id).id;
+    const hol = hdb.run("INSERT INTO holidays (owner_id, date, end_date, name, source) VALUES (?, '2026-10-09', '2026-10-22', 'Break', 'user')", id).id;
+    const s22 = hdb.run("INSERT INTO sessions (class_id, week, date, start_time, end_time, kind, status, note, original_date) VALUES (?, 7, '2026-10-22', '16:15', '17:15', 'lecture', 'cancelled', 'Holiday: Break', '2026-10-22')", c).id;
+    const server = createApp(holder).listen(0);
+    try {
+      const base = `http://127.0.0.1:${(server.address() as any).port}/api`;
+      const login = await fetch(`${base}/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'h@example.test', password: 'h-pass-123' }) });
+      const cookie = login.headers.get('set-cookie')!.split(';')[0];
+      const r = await fetch(`${base}/holidays/${hol}`, { method: 'PUT', headers: { 'content-type': 'application/json', cookie }, body: JSON.stringify({ endDate: '2026-10-15' }) });
+      expect(await r.json()).toEqual({ restored: 1 });
+      expect(hdb.get('SELECT status FROM sessions WHERE id = ?', s22)!.status).toBe('planned');
+    } finally { server.close(); hdb.close(); rmSync(dir, { recursive: true, force: true }); }
+  });
+});

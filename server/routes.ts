@@ -452,10 +452,16 @@ export function buildRouter(holder: DBHolder): Router {
       db.run('UPDATE holidays SET date=?, end_date=?, name=?, name_km=?, approx=0, verified_note=? WHERE id=?', from, to === from ? null : to, str(req.body.name ?? h.name, 'Name'), req.body.nameKm ?? h.name_km, req.body.verifiedNote === undefined ? (h.verified_note ?? 'Confirmed by the teacher') : optText(req.body.verifiedNote, 'Source', 200), h.id);
       db.audit(u.id, 'holiday', h.id, 'update', h, req.body);
     });
+    // Days the holiday no longer covers get their classes back.
+    return { restored: plan.restoreStaleHolidayCancellations(db, u).length };
   });
-  del('/holidays/:id', (req, db, u) => { db.run('DELETE FROM holidays WHERE id = ? AND owner_id = ?', num(req.params.id, 'holiday'), u.id); });
+  del('/holidays/:id', (req, db, u) => {
+    db.run('DELETE FROM holidays WHERE id = ? AND owner_id = ?', num(req.params.id, 'holiday'), u.id);
+    return { restored: plan.restoreStaleHolidayCancellations(db, u).length };
+  });
   post('/holidays/check', (req, db, u) => {
     // Re-check every active class against the current holiday calendar and create proposals.
+    plan.restoreStaleHolidayCancellations(db, u);
     const sc = classScope(u);
     const classes = db.all(`SELECT c.id, c.code FROM classes c WHERE ${sc.where} AND c.status IN ('active','upcoming')`, ...sc.params);
     return classes.map((c) => ({ classId: c.id, code: c.code, proposal: plan.createProposal(db, u, c.id, 'Holiday calendar re-checked') })).filter((x) => x.proposal);
