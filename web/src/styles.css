@@ -400,6 +400,33 @@ table.sheet { border-collapse: separate; border-spacing: 0; font-size: var(--fs-
 .menu-list button, .menu-list a { text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: var(--r-sm); font: 500 var(--fs-sm) var(--font-body); color: var(--ink); cursor: pointer; text-decoration: none; }
 .menu-list button:hover, .menu-list a:hover { background: var(--surface-2); text-decoration: none; }
 .menu-list .danger { color: var(--bad); }
+/* Pay calendar: a month of classes by day; on phones the days stack and empty days are hidden. */
+.paycal-wrap { overflow: hidden; }
+.paycal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.paycal-head { padding: 8px 10px; font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-2); background: var(--surface-2); border-bottom: 1px solid var(--rule-strong); }
+.paycal-day { min-height: 92px; padding: 6px; border-right: 1px solid var(--rule); border-bottom: 1px solid var(--rule); display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.paycal-day:nth-child(7n + 7) { border-right: 0; }
+.paycal-day.out { background: var(--surface-2); }
+.paycal-day.out .paycal-date { color: var(--ink-3); opacity: 0.6; }
+.paycal-day.today .paycal-date span:first-child { background: var(--marker); color: var(--marker-ink); border-radius: 3px; padding: 0 4px; }
+.paycal-date { display: flex; justify-content: space-between; gap: 4px; font-size: var(--fs-xs); color: var(--ink-2); }
+.paycal-date span:first-child::first-word { font-weight: 600; }
+.paycal-ev { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; min-width: 0; padding: 4px 6px; border-radius: var(--r-sm); border: 1px solid var(--rule); border-left: 3px solid var(--rule-strong); background: var(--surface); color: var(--ink); font: inherit; font-size: var(--fs-xs); text-align: left; cursor: pointer; }
+.paycal-ev > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.paycal-ev:hover:not(:disabled) { background: var(--surface-2); }
+.paycal-ev:disabled { cursor: default; }
+.paycal-ev.worked { border-left-color: var(--ok); }
+.paycal-ev.worked.late { border-left-color: var(--warn); }
+.paycal-ev.not-recorded { border-left-color: var(--warn); border-style: dashed; border-left-style: solid; }
+.paycal-ev.not-held { color: var(--ink-3); background: transparent; border-left-color: var(--rule); }
+.paycal-ev.planned { color: var(--ink-2); }
+@media (max-width: 760px) {
+  .paycal { grid-template-columns: 1fr; }
+  .paycal-head, .paycal-day.empty, .paycal-day.out { display: none; }
+  .paycal-day { min-height: 0; border-right: 0; padding: 8px 12px; }
+  .paycal-date { font-size: var(--fs-sm); }
+}
+
 /* Pay month breakdown: full timetable down to Actual. */
 .breakdown { width: 100%; max-width: 560px; border-collapse: collapse; font-size: var(--fs-sm); }
 .breakdown td { padding: 6px 0; border-bottom: 1px dashed var(--rule); vertical-align: top; }

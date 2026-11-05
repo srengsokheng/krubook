@@ -41,12 +41,12 @@ export function CheckIn({ sessionId, start, date, today, value, onChanged }: { s
   );
 }
 
-function EditCheckIn({ sessionId, start, value, onClose, onDone }: { sessionId: number; start: string; value: CheckInValue | null; onClose: () => void; onDone: (r: any, msg?: string) => void }) {
+export function EditCheckIn({ sessionId, start, value, onClose, onDone, label }: { sessionId: number; start: string; value: CheckInValue | null; onClose: () => void; onDone: (r: any, msg?: string) => void; label?: string }) {
   const [time, setTime] = useState(value?.time ?? start);
   const { busy, run } = useAction();
   const late = Math.max(0, (+time.slice(0, 2) * 60 + +time.slice(3, 5)) - (+start.slice(0, 2) * 60 + +start.slice(3, 5)));
   return (
-    <Dialog title="Your arrival" onClose={onClose} footer={value?.locked ? <button className="btn" onClick={onClose}>Close</button> : <>
+    <Dialog title={label ? `Your arrival · ${label}` : 'Your arrival'} onClose={onClose} footer={value?.locked ? <button className="btn" onClick={onClose}>Close</button> : <>
       {value?.time && <button className="btn danger" disabled={busy} onClick={() => run(() => api(`/sessions/${sessionId}/checkin`, { method: 'DELETE' })).then((r) => { onDone(r, 'Check-in removed'); if (r) onClose(); })}>Remove check-in</button>}
       <button className="btn" onClick={onClose}>Cancel</button>
       <button className="btn primary" disabled={busy || !/^\d\d:\d\d$/.test(time)} onClick={() => run(() => api(`/sessions/${sessionId}/checkin`, { body: { time } })).then((r) => { onDone(r, r && `Arrival saved: ${r.time}, ${lateLabel(r.late)}`); if (r) onClose(); })}>Save</button>
@@ -56,7 +56,7 @@ function EditCheckIn({ sessionId, start, value, onClose, onDone }: { sessionId: 
           <Field label="Arrived at" hint={`The session starts at ${start}. ${/^\d\d:\d\d$/.test(time) ? `This is ${lateLabel(late)}.` : ''}`}>
             <input id="ci-time" type="time" value={time} onChange={(e) => setTime(e.target.value)} />
           </Field>
-          <p className="faint xs">Late minutes are deducted from pay according to the late-arrival rule on the Pay page.</p>
+          <p className="faint xs">Saving an arrival counts the class as worked. Arriving late cuts its pay by the late-arrival rule (Pay › Rates).</p>
         </>
       )}
     </Dialog>

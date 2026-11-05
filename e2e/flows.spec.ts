@@ -198,6 +198,23 @@ test.describe('signed in', () => {
     await expect(page.getByText('Full timetable')).toHaveCount(0);
   });
 
+  test('pay sessions: filter by month, switch to the calendar, and add a forgotten arrival', async ({ page }) => {
+    await page.goto('/pay#sessions');
+    await expect(page.getByText(/classes worked/)).toBeVisible();
+    await page.getByRole('group', { name: 'Period' }).getByRole('button', { name: 'Calendar month' }).click();
+    await page.getByLabel('Month').selectOption('2026-10');
+    await expect(page.getByText(/of \d+ classes worked/)).toBeVisible();
+    await page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Calendar' }).click();
+    // A past class without a teaching record: adding the arrival makes it worked.
+    const missing = page.locator('.paycal-ev.not-recorded').first();
+    await expect(missing).toBeVisible();
+    const name = (await missing.getAttribute('aria-label'))!.split(' Not recorded')[0];
+    await missing.click();
+    await page.locator('#ci-time').fill(name.split(' ')[2]);
+    await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
+    await expect(page.locator(`.paycal-ev[aria-label^="${name} Worked"]`)).toBeVisible();
+  });
+
   test('sign out ends the session', async ({ browser }) => {
     // A separate sign-in so the saved session used by the page tests stays valid.
     const page = await browser.newPage({ storageState: undefined });

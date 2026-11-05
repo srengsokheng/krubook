@@ -225,6 +225,12 @@ late cuts, classes not recorded yet, classes still to come and adjustments. Anyt
 minutes recorded shorter than scheduled or amounts frozen on an approved statement, is shown as
 "other differences", so the steps always add up.
 
+**Pay › Sessions** shows one pay month (16th to 15th) or one calendar month, as a list or a calendar
+(on phones the calendar becomes a day-by-day list). Every class is there, also the unpaid ones
+(holidays, not recorded yet). Tapping a class that has taken place adds or corrects its arrival time,
+for a forgotten check-in: that counts it as worked and applies the late rule. Classes on an approved
+statement cannot be changed.
+
 Each pay month shows two figures. **Expected** is every session scheduled in the period that is not
 cancelled (holidays cancel sessions), at full rate and scheduled length, plus adjustments. **Actual**
 is what was worked, after late cuts, plus adjustments. An approved statement stores each session's

@@ -1,7 +1,9 @@
 import { AppError, type DB, type Row } from '../db.ts';
 import type { User } from '../auth.ts';
 import { getSetting, ownClass, ownCourse, payStartDay, today } from './access.ts';
-import { durationMinutes, isISODate } from '../../shared/dates.ts';
+import { diffDays, durationMinutes, isISODate } from '../../shared/dates.ts';
+
+const durationDays = (from: string, to: string) => diffDays(to, from);
 import { lateDeduction, lateMinutes, parseLateRule, payMonthOf, payPeriod, resolveRate, sessionPay, type LateRule, type Rate } from '../../shared/pay.ts';
 
 // Pay is personal: it always covers the signed-in teacher's own classes, even for admins.
@@ -390,10 +392,11 @@ export function validateAdjustment(b: Row) {
 // Payslip: one pay month, every session in it and what happened to it, to check against what the
 // school actually paid.
 
-export function payslip(db: DB, u: User, month: string) {
-  if (!MONTH_RE.test(month)) throw new AppError(422, 'Choose a month as YYYY-MM.');
-  const sd = payStartDay(db, u);
-  const { from, to } = payPeriod(month, sd);
+/**
+ * Every class from `from` to `to` and what happened to it for pay: worked (paid, with arrival and
+ * late cut), not held (holiday or cancelled, with the reason), not recorded yet, or planned.
+ */
+export function periodRows(db: DB, u: User, from: string, to: string) {
   const now = today(db, u);
   const rates = loadRates(db, u.id);
   const worked = new Map(payLines(db, u, from, to).map((l) => [l.sessionId, l]));
@@ -411,14 +414,46 @@ export function payslip(db: DB, u: User, month: string) {
     const holiday = !l && unpaidHoliday(hs, s) ? holidayOn(hs, s.date, s.term_id) : null;
     const state = l ? 'worked' : holiday || s.status === 'cancelled' || s.status === 'skipped' ? 'not held' : s.date >= now ? 'planned' : 'not recorded';
     return {
-      sessionId: s.id, date: s.date, start: s.start_time, end: s.end_time, code: s.code, kind: s.kind, state,
+      sessionId: s.id, classId: s.class_id, date: s.date, start: s.start_time, end: s.end_time, code: s.code, kind: s.kind, state,
       reason: state !== 'not held' ? null : holiday && s.status !== 'cancelled' ? `Holiday: ${holiday.name}${s.status === 'completed' ? ' (recorded as taught, not paid)' : ''}`
         : /^Holiday:/.test(s.note ?? '') && !holidayOn(hs, s.date, s.term_id) ? 'Cancelled for a holiday that is no longer on your list. Use “Check classes against holidays” to restore it.' : s.note,
       scheduledMinutes: minutes, fullPay: state === 'not held' ? 0 : full,
-      minutes: l?.minutes ?? null, checkin: l?.checkin ?? null, late: l?.late ?? 0, cut: l?.deduction ?? 0, amount: l?.amount ?? 0,
+      minutes: l?.minutes ?? null, rate: l?.rate ?? null, recorded: l?.recorded ?? false,
+      checkin: l?.checkin ?? s.checkin ?? null, late: l?.late ?? 0, cut: l?.deduction ?? 0, amount: l?.amount ?? 0,
       statementStatus: l?.statementStatus ?? null,
+      // An arrival can be added or changed for a class that took place (or today's), unless it is on an approved statement.
+      canEditArrival: !l?.statementStatus && state !== 'not held' && s.date <= now,
     };
   });
+  return { rows, worked, currency: rates[0]?.currency ?? 'USD' };
+}
+
+/** Any span of up to two months, for the Sessions list and calendar. */
+export function payPeriodView(db: DB, u: User, from: string, to: string) {
+  if (!isISODate(from) || !isISODate(to) || to < from) throw new AppError(422, 'Choose a valid period.');
+  if (durationDays(from, to) > 62) throw new AppError(422, 'Choose a period of at most two months.');
+  const { rows, currency } = periodRows(db, u, from, to);
+  const worked = rows.filter((r) => r.state === 'worked');
+  return {
+    from, to, today: today(db, u), currency, rows,
+    totals: {
+      sessions: rows.filter((r) => r.state !== 'not held').length,
+      worked: worked.length,
+      minutes: worked.reduce((x, r) => x + (r.minutes ?? 0), 0),
+      amount: r2(worked.reduce((x, r) => x + r.amount, 0)),
+      lateCuts: r2(worked.reduce((x, r) => x + r.cut, 0)),
+      late: worked.filter((r) => r.late > 0).length,
+      notRecorded: rows.filter((r) => r.state === 'not recorded').length,
+    },
+  };
+}
+
+export function payslip(db: DB, u: User, month: string) {
+  if (!MONTH_RE.test(month)) throw new AppError(422, 'Choose a month as YYYY-MM.');
+  const sd = payStartDay(db, u);
+  const { from, to } = payPeriod(month, sd);
+  const { rows, worked } = periodRows(db, u, from, to);
+  const rates = loadRates(db, u.id);
   const adjustments = db.all('SELECT id, amount, note, statement_id FROM pay_adjustments WHERE owner_id = ? AND month = ? ORDER BY id', u.id, month);
   const statements = db.all('SELECT * FROM pay_statements WHERE owner_id = ? AND month = ? ORDER BY id', u.id, month).map(statementOut);
   const adj = r2(adjustments.reduce((s, a) => s + a.amount, 0));

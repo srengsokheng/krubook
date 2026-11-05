@@ -746,6 +746,7 @@ export function buildRouter(holder: DBHolder): Router {
     const lines = pay.payLines(db, u, period.from, period.to);
     return pageArray(lines.reverse(), p);
   });
+  get('/pay/period', (req, db, u) => pay.payPeriodView(db, u, String(req.query.from ?? ''), String(req.query.to ?? '')));
   get('/pay/payslip/:month', (req, db, u) => pay.payslip(db, u, String(req.params.month)));
   post('/pay/statements', (req, db, u) => pay.approveMonth(db, u, String(req.body.month ?? ''), req.body.note));
   get('/pay/statements/:id', (req, db, u) => pay.statementDetail(db, u, num(req.params.id, 'statement')));

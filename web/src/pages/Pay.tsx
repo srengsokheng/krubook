@@ -4,6 +4,7 @@ import { usePref } from '../prefs.ts';
 import { api, download, useApi } from '../api.ts';
 import { useI18n } from '../i18n.tsx';
 import { PayBreakdown } from '../PayBreakdown.tsx';
+import { EditCheckIn } from '../CheckIn.tsx';
 import { Fragment } from 'react';
 import { Confirm, D, Dialog, Empty, ErrorNote, Field, Icon, Loading, Menu, Notice, Pager, Pill, PayMonth, TabBar, money, plural, useAction, useTab, useToast } from '../ui.tsx';
 
@@ -44,7 +45,7 @@ export function Pay() {
 
       <TabBar tabs={TABS} value={tab} onChange={setTab} labels={{ months: 'By month', sessions: 'Sessions', rates: `Rates (${p.rates.filter((r: any) => r.active).length})`, adjustments: 'Adjustments' }} />
       {tab === 'months' && <Months p={p} reload={reload} />}
-      {tab === 'sessions' && <Sessions year={year} currency={cur} />}
+      {tab === 'sessions' && <Sessions p={p} reload={reload} />}
       {tab === 'rates' && <Rates p={p} year={year} reload={reload} />}
       {tab === 'adjustments' && <Adjustments p={p} reload={reload} />}
     </div>
@@ -143,32 +144,124 @@ function StatementDetail({ id, onClose }: { id: number; onClose: () => void }) {
   );
 }
 
-function Sessions({ year, currency }: { year: string; currency: string }) {
-  const [page, setPage] = useState(1);
-  const [size, setSize] = usePref<number>('pageSize.paySessions', 10);
-  const { data, error, loading, reload } = useApi<any>(`/pay/lines?year=${year}&page=${page}&pageSize=${size}`);
-  if (error) return <ErrorNote error={error} retry={reload} />;
-  if (loading && !data) return <Loading />;
-  if (!data?.total) return <div className="panel"><Empty title="No taught sessions this year" /></div>;
+// Sessions of one pay month (16th to 15th) or one calendar month, as a list or a calendar. Every
+// class is shown, also those not paid (holidays, not recorded yet), and the arrival of any class
+// that has taken place can be added or corrected (a forgotten check-in), unless its month is approved.
+const STATE_LABEL: Record<string, string> = { worked: 'Worked', 'not held': 'Not held', planned: 'Planned', 'not recorded': 'Not recorded yet' };
+const lastDay = (ym: string) => new Date(Date.UTC(+ym.slice(0, 4), +ym.slice(5, 7), 0)).getUTCDate();
+
+function Sessions({ p, reload: reloadPay }: { p: any; reload: () => void }) {
+  const [basis, setBasis] = usePref<'pay' | 'calendar'>('view.payPeriod', 'pay');
+  const [view, setView] = usePref<'list' | 'calendar'>('view.paySessions', 'list');
+  const payMonths: any[] = p.months;
+  const calMonths = Array.from({ length: 12 }, (_, i) => `${p.year}-${String(i + 1).padStart(2, '0')}`);
+  const fallback = payMonths.find((m) => m.month === p.currentMonth)?.month ?? payMonths.at(-1)?.month ?? `${p.year}-01`;
+  const [month, setMonth] = useState<string>(fallback);
+  const pm = payMonths.find((m) => m.month === month);
+  const period = basis === 'pay' ? (pm ? { from: pm.from, to: pm.to } : null) : { from: `${month}-01`, to: `${month}-${lastDay(month)}` };
+  const { data, error, loading, reload } = useApi<any>(period ? `/pay/period?from=${period.from}&to=${period.to}` : null);
+  const [editing, setEditing] = useState<any | null>(null);
+  const toast = useToast();
+  const cur = p.currency;
+  const monthName = (ym: string) => new Date(`${ym}-01T00:00:00Z`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  const edit = (r: any) => { if (r.canEditArrival) setEditing(r); };
+
   return (
-    <div className="panel">
-      <div className="table-wrap">
-        <table className="table mobile-cards">
-          <thead><tr><th>Date</th><th>Class</th><th className="num">Minutes</th><th>Arrived</th><th>Rate</th><th className="num">Amount</th><th>Status</th></tr></thead>
-          <tbody>{data.items.map((l: any) => (
-            <tr key={l.sessionId}>
-              <td data-label="Date" className="mono small"><span><D date={l.date} /> {l.start}</span></td>
-              <td data-label="Class" className="mono"><span>{l.code}{l.isMakeup && <span className="pill" style={{ marginLeft: 6 }}>make-up</span>}</span></td>
-              <td data-label="Minutes" className="num">{l.minutes}</td>
-              <td data-label="Arrived" className="small"><Arrived l={l} currency={currency} /></td>
-              <td data-label="Rate" className="small">{l.rate ?? <Pill tone="warn">no rate</Pill>}</td>
-              <td data-label="Amount" className="num">{money(l.amount, currency)}</td>
-              <td data-label="Status">{l.statementStatus ? <Pill tone={l.statementStatus === 'paid' ? 'ok' : 'accent'}>{l.statementStatus}</Pill> : <span className="faint small">estimate{l.recorded ? '' : ' · checked in, not recorded'}</span>}</td>
-            </tr>
-          ))}</tbody>
-        </table>
+    <div className="stack">
+      <div className="row between">
+        <div className="row">
+          <div className="seg" role="group" aria-label="Period"><button className={basis === 'pay' ? 'on' : ''} onClick={() => setBasis('pay')}>Pay month</button><button className={basis === 'calendar' ? 'on' : ''} onClick={() => setBasis('calendar')}>Calendar month</button></div>
+          <select aria-label="Month" value={month} onChange={(e) => setMonth(e.target.value)} style={{ width: 'auto' }}>
+            {(basis === 'pay' ? payMonths.map((m) => m.month) : calMonths).map((m) => {
+              const x = payMonths.find((y) => y.month === m);
+              return <option key={m} value={m}>{monthName(m)}{basis === 'pay' && x ? ` · ${+x.from.slice(8)} ${new Date(`${x.from}T00:00:00Z`).toLocaleDateString('en-GB', { month: 'short', timeZone: 'UTC' })} – ${+x.to.slice(8)} ${new Date(`${x.to}T00:00:00Z`).toLocaleDateString('en-GB', { month: 'short', timeZone: 'UTC' })}` : ''}</option>;
+            })}
+          </select>
+        </div>
+        <div className="seg" role="group" aria-label="View"><button className={view === 'list' ? 'on' : ''} onClick={() => setView('list')}>List</button><button className={view === 'calendar' ? 'on' : ''} onClick={() => setView('calendar')}>Calendar</button></div>
       </div>
-      <Pager meta={data} onPage={setPage} onSize={(s) => { setSize(s); setPage(1); }} noun="sessions" />
+      {error ? <ErrorNote error={error} retry={reload} /> : !period ? <div className="panel"><Empty title="No pay month to show" /></div> : loading && !data ? <Loading /> : data && (
+        <>
+          <p className="small muted">
+            <b className="mono">{data.totals.worked}</b> of {data.totals.sessions} classes worked · <b className="mono">{(data.totals.minutes / 60).toFixed(1)} h</b> · <b className="mono">{money(data.totals.amount, cur)}</b>
+            {data.totals.late > 0 && <> · {plural(data.totals.late, 'late arrival', 'late arrivals')}{data.totals.lateCuts > 0 ? ` −${money(data.totals.lateCuts, cur)}` : ''}</>}
+            {data.totals.notRecorded > 0 && <> · <span style={{ color: 'var(--warn)' }}>{data.totals.notRecorded} not recorded yet</span></>}
+            <span className="faint"> · tap a class to add or correct your arrival time</span>
+          </p>
+          {view === 'list' ? <SessionList rows={data.rows} currency={cur} onEdit={edit} /> : <PayCalendar data={data} currency={cur} onEdit={edit} />}
+        </>
+      )}
+      {editing && <EditCheckIn label={`${editing.code}, ${new Date(`${editing.date}T00:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' })} ${editing.start}`} sessionId={editing.sessionId} start={editing.start} value={editing.checkin ? { time: editing.checkin, late: editing.late } : null}
+        onClose={() => setEditing(null)} onDone={(r, msg) => { if (r) { if (msg) toast(msg); reload(); reloadPay(); } }} />}
+    </div>
+  );
+}
+
+function stateTone(r: any): 'ok' | 'warn' | 'bad' | undefined {
+  if (r.state === 'worked') return r.late > 0 ? (r.cut > 0 ? 'bad' : 'warn') : 'ok';
+  if (r.state === 'not recorded') return 'warn';
+  return undefined;
+}
+
+function ArrivalButton({ r, currency, onEdit }: { r: any; currency: string; onEdit: (r: any) => void }) {
+  const text = r.checkin ? `${r.checkin}${r.late > 0 ? ` · ${r.late} min late${r.cut > 0 ? ` −${money(r.cut, currency)}` : ''}` : ' · on time'}` : r.canEditArrival ? 'Add arrival' : '—';
+  if (!r.canEditArrival) return <span className="faint small mono">{r.checkin ? text : '—'}</span>;
+  return <button type="button" className="btn sm ghost" aria-label={`Arrival for ${r.code} on ${r.date} ${r.start}`} onClick={() => onEdit(r)}><Pill tone={r.checkin ? stateTone(r) : undefined}>{text}</Pill></button>;
+}
+
+function SessionList({ rows, currency, onEdit }: { rows: any[]; currency: string; onEdit: (r: any) => void }) {
+  if (!rows.length) return <div className="panel"><Empty title="No classes in this period" /></div>;
+  return (
+    <div className="panel table-wrap">
+      <table className="table mobile-cards">
+        <thead><tr><th>Date</th><th>Class</th><th>Time</th><th>Status</th><th>Arrived</th><th className="num">Amount</th></tr></thead>
+        <tbody>{rows.map((r) => (
+          <tr key={r.sessionId} className={r.state === 'not held' ? 'is-dim' : ''}>
+            <td data-label="Date" className="mono small"><D date={r.date} /></td>
+            <td data-label="Class" className="mono">{r.code}</td>
+            <td data-label="Time" className="mono small">{r.start}–{r.end}</td>
+            <td data-label="Status" className="small"><span>{STATE_LABEL[r.state]}{r.reason ? <span className="faint">: {r.reason}</span> : ''}{r.statementStatus ? <> <Pill tone={r.statementStatus === 'paid' ? 'ok' : 'accent'}>{r.statementStatus}</Pill></> : ''}</span></td>
+            <td data-label="Arrived"><ArrivalButton r={r} currency={currency} onEdit={onEdit} /></td>
+            <td data-label="Amount" className="num">{r.state === 'worked' ? money(r.amount, currency) : ''}</td>
+          </tr>
+        ))}</tbody>
+      </table>
+    </div>
+  );
+}
+
+function PayCalendar({ data, currency, onEdit }: { data: any; currency: string; onEdit: (r: any) => void }) {
+  const add = (d: string, n: number) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
+  const dow = (d: string) => (new Date(`${d}T00:00:00Z`).getUTCDay() + 6) % 7; // Monday = 0
+  const start = add(data.from, -dow(data.from)), end = add(data.to, 6 - dow(data.to));
+  const byDay = new Map<string, any[]>();
+  for (const r of data.rows) byDay.set(r.date, [...(byDay.get(r.date) ?? []), r]);
+  const days: string[] = [];
+  for (let d = start; d <= end; d = add(d, 1)) days.push(d);
+  return (
+    <div className="panel paycal-wrap">
+      <div className="paycal" role="grid" aria-label="Classes by day">
+        {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => <div key={d} className="paycal-head" role="columnheader">{d}</div>)}
+        {days.map((d) => {
+          const inside = d >= data.from && d <= data.to;
+          const list = inside ? byDay.get(d) ?? [] : [];
+          const dayTotal = list.filter((r) => r.state === 'worked').reduce((x, r) => x + r.amount, 0);
+          return (
+            <div key={d} role="gridcell" className={`paycal-day ${inside ? '' : 'out'} ${d === data.today ? 'today' : ''} ${list.length ? '' : 'empty'}`}>
+              <div className="paycal-date"><span>{new Date(`${d}T00:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' })}</span>{dayTotal > 0 && <span className="mono faint">{money(dayTotal, currency)}</span>}</div>
+              {list.map((r) => (
+                <button key={r.sessionId} type="button" className={`paycal-ev ${r.state.replace(' ', '-')} ${r.late > 0 ? 'late' : ''}`} disabled={!r.canEditArrival}
+                  title={`${r.code} ${r.start}–${r.end}: ${STATE_LABEL[r.state]}${r.reason ? ` (${r.reason})` : ''}${r.canEditArrival ? '. Tap to add or correct your arrival.' : ''}`}
+                  aria-label={`${r.code} ${r.date} ${r.start} ${STATE_LABEL[r.state]}${r.checkin ? `, arrived ${r.checkin}` : ''}`} onClick={() => onEdit(r)}>
+                  <span className="mono"><b>{r.code}</b> {r.start}</span>
+                  <span className="xs">{r.state === 'worked' ? (r.checkin ? (r.late > 0 ? `${r.checkin} · ${r.late} min late` : `${r.checkin} on time`) : 'no check-in') : r.state === 'not held' ? (r.reason?.startsWith('Holiday') ? r.reason.split(' (')[0] : 'Not held') : STATE_LABEL[r.state]}</span>
+                  {r.state === 'worked' && <span className="mono xs">{money(r.amount, currency)}</span>}
+                </button>
+              ))}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
