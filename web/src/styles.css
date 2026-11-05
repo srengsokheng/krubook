@@ -400,6 +400,10 @@ table.sheet { border-collapse: separate; border-spacing: 0; font-size: var(--fs-
 .menu-list button, .menu-list a { text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: var(--r-sm); font: 500 var(--fs-sm) var(--font-body); color: var(--ink); cursor: pointer; text-decoration: none; }
 .menu-list button:hover, .menu-list a:hover { background: var(--surface-2); text-decoration: none; }
 .menu-list .danger { color: var(--bad); }
+/* Exams & files list. */
+.file-ico { flex: none; width: 34px; height: 34px; border-radius: var(--r-sm); background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; }
+.file-ico svg { width: 18px; height: 18px; }
+
 /* Pay calendar: a month of classes by day; on phones the days stack and empty days are hidden. */
 .paycal-wrap { overflow: hidden; }
 .paycal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }

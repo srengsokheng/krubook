@@ -215,6 +215,14 @@ test.describe('signed in', () => {
     await expect(page.locator(`.paycal-ev[aria-label^="${name} Worked"]`)).toBeVisible();
   });
 
+  test('exams & files: upload a midterm paper, see it listed, download it', async ({ page }) => {
+    await page.goto('/classes/1/files');
+    await page.getByLabel('Files to upload').setInputFiles({ name: 'Midterm 2026.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: Buffer.from('PK fake paper') });
+    await expect(page.getByText('Midterm 2026.docx ·')).toBeVisible();
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download' }).first().click()]);
+    expect(dl.suggestedFilename()).toBe('Midterm 2026.docx');
+  });
+
   test('sign out ends the session', async ({ browser }) => {
     // A separate sign-in so the saved session used by the page tests stays valid.
     const page = await browser.newPage({ storageState: undefined });

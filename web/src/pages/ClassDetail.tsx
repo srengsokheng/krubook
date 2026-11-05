@@ -7,6 +7,7 @@ import { PlanTab } from './PlanTab.tsx';
 import { RosterTab } from './RosterTab.tsx';
 import { AttendanceTab } from './AttendanceTab.tsx';
 import { GradebookTab } from './GradebookTab.tsx';
+import { FilesTab } from './FilesTab.tsx';
 import { MeetingsEditor, meetingText } from './Classes.tsx';
 import { formatDate, weekdayName } from '../../../shared/dates.ts';
 
@@ -24,7 +25,7 @@ export function ClassDetail() {
         <div>
           <div className="eyebrow"><Link to="/classes">{t('Classes')}</Link> · {c.term.name}</div>
           <h1 className="row" style={{ gap: 10 }}><span className="dot" style={{ background: c.course.color, width: 12, height: 12 }} /><span className="mono">{c.code}</span><span style={{ fontWeight: 500 }}>{c.course.name}</span></h1>
-          <p className="sub">{c.meetings.length ? meetingText(c.meetings) : 'No meeting times yet'} · starts <D date={c.start_date} />{c.room ? ` · ${c.room}` : ''}</p>
+          <p className="sub">{[c.year_level ? `Year ${c.year_level}` : '', c.semester ? `Semester ${c.semester}` : '', c.promotion ? `Promotion ${c.promotion}` : ''].filter(Boolean).join(' · ')}{c.year_level || c.semester || c.promotion ? ' · ' : ''}{c.meetings.length ? meetingText(c.meetings) : 'No meeting times yet'} · starts <D date={c.start_date} />{c.room ? ` · ${c.room}` : ''}</p>
         </div>
         <div className="toolbar">
           {c.status !== 'active' && <Pill tone={c.status === 'upcoming' ? 'accent' : undefined}>{c.status}</Pill>}
@@ -38,6 +39,7 @@ export function ClassDetail() {
         <NavLink to={`${base}/attendance`}>{t('Attendance')}</NavLink>
         <NavLink to={`${base}/grades`}>{t('Gradebook')}</NavLink>
         <NavLink to={`${base}/roster`}>{t('Roster')}</NavLink>
+        <NavLink to={`${base}/files`}>Exams &amp; files</NavLink>
         <NavLink to={`${base}/setup`}>{t('Setup')}</NavLink>
       </nav>
       <Routes>
@@ -46,6 +48,7 @@ export function ClassDetail() {
         <Route path="attendance" element={<AttendanceTab cls={c} />} />
         <Route path="grades" element={<GradebookTab cls={c} />} />
         <Route path="roster" element={<RosterTab cls={c} onChanged={reload} />} />
+        <Route path="files" element={<FilesTab cls={c} />} />
         <Route path="setup" element={<Setup c={c} onChanged={reload} />} />
       </Routes>
     </div>
@@ -123,7 +126,7 @@ function Overview({ c }: { c: any }) {
 function Setup({ c, onChanged }: { c: any; onChanged: () => void }) {
   const { lang } = useI18n();
   const { busy, run } = useAction();
-  const [f, setF] = useState({ code: c.code, name: c.name ?? '', startDate: c.start_date, endDate: c.end_date ?? '', room: c.room ?? '', weeks: c.weeks, status: c.status, notes: c.notes ?? '', progressTolerance: c.progress_tolerance });
+  const [f, setF] = useState({ code: c.code, name: c.name ?? '', startDate: c.start_date, endDate: c.end_date ?? '', room: c.room ?? '', weeks: c.weeks, status: c.status, notes: c.notes ?? '', progressTolerance: c.progress_tolerance, yearLevel: c.year_level ?? '', semester: c.semester ?? '', promotion: c.promotion ?? '' });
   const [meetings, setMeetings] = useState(c.meetings.map((m: any) => ({ id: m.id, weekday: m.weekday, start: m.start_time, end: m.end_time, room: m.room })));
   const [rule, setRule] = useState<any>(c.rule);
   const [custom, setCustom] = useState<boolean>(c.ruleIsCustom);
@@ -138,6 +141,9 @@ function Setup({ c, onChanged }: { c: any; onChanged: () => void }) {
           <div className="form-grid">
             <Field label="Class code"><input id="s-code" value={f.code} onChange={(e) => setF({ ...f, code: e.target.value })} /></Field>
             <Field label="Display name"><input id="s-name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
+            <Field label="Year (of study)"><select id="s-year" value={f.yearLevel} onChange={(e) => setF({ ...f, yearLevel: e.target.value })}><option value="">—</option>{[1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>Year {n}</option>)}</select></Field>
+            <Field label="Semester"><select id="s-sem" value={f.semester} onChange={(e) => setF({ ...f, semester: e.target.value })}><option value="">—</option>{[1, 2, 3].map((n) => <option key={n} value={n}>Semester {n}</option>)}</select></Field>
+            <Field label="Promotion" hint="The intake number, e.g. 24."><input id="s-promo" value={f.promotion} onChange={(e) => setF({ ...f, promotion: e.target.value })} /></Field>
             <Field label="First day"><input id="s-start" type="date" value={f.startDate} onChange={(e) => setF({ ...f, startDate: e.target.value })} /></Field>
             <Field label="Last day (optional)"><input id="s-end" type="date" value={f.endDate} onChange={(e) => setF({ ...f, endDate: e.target.value })} /></Field>
             <Field label="Teaching weeks"><input id="s-weeks" type="number" min={1} max={40} value={f.weeks} onChange={(e) => setF({ ...f, weeks: +e.target.value })} /></Field>
@@ -148,7 +154,7 @@ function Setup({ c, onChanged }: { c: any; onChanged: () => void }) {
             <Field label="On-schedule tolerance" hint="Lesson parts ahead or behind that still count as on schedule."><input id="s-tol" type="number" min={0} max={5} value={f.progressTolerance} onChange={(e) => setF({ ...f, progressTolerance: +e.target.value })} /></Field>
           </div>
           <Field label="Notes"><textarea id="s-notes" value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} /></Field>
-          <button className="btn primary" style={{ alignSelf: 'flex-start' }} disabled={busy} onClick={() => run(() => api(`/classes/${c.id}`, { method: 'PUT', body: { ...f, endDate: f.endDate || null } }), 'Class saved').then(onChanged)}>Save details</button>
+          <button className="btn primary" style={{ alignSelf: 'flex-start' }} disabled={busy} onClick={() => run(() => api(`/classes/${c.id}`, { method: 'PUT', body: { ...f, endDate: f.endDate || null, yearLevel: f.yearLevel === '' ? null : +f.yearLevel, semester: f.semester === '' ? null : +f.semester, promotion: f.promotion.trim() || null } }), 'Class saved').then(onChanged)}>Save details</button>
           <p className="faint xs">Changing the first day or weeks affects new plans only. Regenerate the plan from the Term plan tab (possible until teaching is recorded).</p>
         </div>
       </section>

@@ -253,6 +253,14 @@ check-in is removed.
   Actual, and what the school paid. A paid amount different from the approved total is flagged there and
   on the month.
 
+## Class details and exam files
+
+Each class has a **year of study**, **semester** and **promotion** (Setup), shown under the class
+name, for exam papers and reports. **Exams & files** keeps papers with the class (midterm, final,
+other: Word, PDF, Excel, PowerPoint, images, code or zip, up to 25 MB each), so the next exam can
+start from the last one. Files are stored in the database, so backups include them (base64 in the
+JSON backup), and only the class's teacher can see them.
+
 ## Accounts (several teachers)
 
 Every teacher has their own account, and everything in it (courses, terms, classes, students,

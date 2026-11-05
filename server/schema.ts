@@ -581,4 +581,26 @@ CREATE TABLE data_fixes (
   result TEXT NOT NULL
 );
 `,
+  // 8: a class's year, semester and promotion (for exam papers), and files kept with a class
+  // (exam papers: midterm, final, other).
+  `
+ALTER TABLE classes ADD COLUMN year_level INTEGER CHECK (year_level IS NULL OR year_level BETWEEN 1 AND 8);
+ALTER TABLE classes ADD COLUMN semester INTEGER CHECK (semester IS NULL OR semester BETWEEN 1 AND 3);
+ALTER TABLE classes ADD COLUMN promotion TEXT;
+
+CREATE TABLE class_files (
+  id INTEGER PRIMARY KEY,
+  class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('midterm','final','other')),
+  title TEXT NOT NULL,
+  filename TEXT NOT NULL,
+  mime TEXT NOT NULL,
+  size INTEGER NOT NULL CHECK (size > 0),
+  sha256 TEXT NOT NULL,
+  data BLOB NOT NULL,
+  uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX class_files_class ON class_files(class_id, kind);
+`,
 ];

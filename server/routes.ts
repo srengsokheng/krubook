@@ -1,5 +1,6 @@
 import express, { type Request, type Response, type Router } from 'express';
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { AppError, translateDbError, type DB, type Row } from './db.ts';
 import { addAccount, checkLoginRate, endSession, requireUser, sessionToken, startSession, verifyPassword, type User } from './auth.ts';
 import * as accounts from './services/accounts.ts';
@@ -508,13 +509,74 @@ export function buildRouter(holder: DBHolder): Router {
     const c = ownClass(db, u, num(req.params.id, 'class'));
     const b = req.body;
     db.tx(() => {
-      db.run('UPDATE classes SET code=?, name=?, start_date=?, end_date=?, room=?, weeks=?, status=?, notes=?, progress_tolerance=?, session_rule=? WHERE id=?',
+      const small = (v: unknown, what: string, max: number, old: number | null) => {
+        if (v === undefined) return old;
+        if (v === null || v === '') return null;
+        const n = Number(v);
+        if (!Number.isInteger(n) || n < 1 || n > max) throw new AppError(422, `${what} must be a whole number from 1 to ${max}.`);
+        return n;
+      };
+      db.run('UPDATE classes SET code=?, name=?, start_date=?, end_date=?, room=?, weeks=?, status=?, notes=?, progress_tolerance=?, session_rule=?, year_level=?, semester=?, promotion=? WHERE id=?',
         str(b.code ?? c.code, 'Class code'), b.name === undefined ? c.name : b.name, date(b.startDate ?? c.start_date, 'Start date'), b.endDate === undefined ? c.end_date : date(b.endDate, 'End date', false),
         b.room === undefined ? c.room : b.room, b.weeks ?? c.weeks, b.status ?? c.status, b.notes === undefined ? c.notes : b.notes, b.progressTolerance ?? c.progress_tolerance,
-        b.sessionRule === undefined ? c.session_rule : b.sessionRule === null ? null : JSON.stringify(validRule(b.sessionRule)), c.id);
+        b.sessionRule === undefined ? c.session_rule : b.sessionRule === null ? null : JSON.stringify(validRule(b.sessionRule)),
+        small(b.yearLevel, 'Year', 8, c.year_level), small(b.semester, 'Semester', 3, c.semester), b.promotion === undefined ? c.promotion : optText(b.promotion, 'Promotion', 40), c.id);
       db.audit(u.id, 'class', c.id, 'update', c, b);
     });
   });
+  // ---- Exam papers and other files kept with a class ---------------------------------------
+  const FILE_TYPES: Record<string, string> = {
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', doc: 'application/msword', pdf: 'application/pdf',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', txt: 'text/plain', zip: 'application/zip', cpp: 'text/plain', h: 'text/plain',
+  };
+  const fileOut = (f: Row) => ({ id: f.id, classId: f.class_id, kind: f.kind, title: f.title, filename: f.filename, size: f.size, createdAt: f.created_at });
+  const ownFile = (db: DB, u: User, id: number) => {
+    const f = db.get('SELECT id, class_id, kind, title, filename, mime, size, created_at FROM class_files WHERE id = ?', id);
+    if (!f) throw new AppError(404, 'File not found.');
+    ownClass(db, u, f.class_id);
+    return f;
+  };
+  get('/classes/:id/files', (req, db, u) => {
+    const c = ownClass(db, u, num(req.params.id, 'class'));
+    return db.all('SELECT id, class_id, kind, title, filename, size, created_at FROM class_files WHERE class_id = ? ORDER BY kind, created_at DESC', c.id).map(fileOut);
+  });
+  r.post('/classes/:id/files', express.raw({ type: '*/*', limit: '25mb' }), wrap((req, db, u) => {
+    const c = ownClass(db, u, num(req.params.id, 'class'));
+    const body = req.body as Buffer;
+    if (!Buffer.isBuffer(body) || !body.length) throw new AppError(422, 'Choose a file to upload.');
+    const filename = String(req.query.filename ?? '').replace(/[\\/\u0000-\u001f]/g, '').trim().slice(0, 200);
+    const ext = filename.split('.').pop()?.toLowerCase() ?? '';
+    if (!filename || !FILE_TYPES[ext]) throw new AppError(422, 'Upload a Word, PDF, Excel, PowerPoint, image, text, code or zip file.');
+    const kind = ['midterm', 'final', 'other'].includes(String(req.query.kind)) ? String(req.query.kind) : 'other';
+    const title = optText(String(req.query.title ?? ''), 'Title', 200) ?? filename.replace(/\.[^.]+$/, '');
+    const id = db.tx(() => {
+      const id = db.run('INSERT INTO class_files (class_id, kind, title, filename, mime, size, sha256, data, uploaded_by) VALUES (?,?,?,?,?,?,?,?,?)',
+        c.id, kind, title, filename, FILE_TYPES[ext], body.length, createHash('sha256').update(body).digest('hex'), body, u.id).id;
+      db.audit(u.id, 'class_file', id, 'upload', undefined, { classId: c.id, kind, title, filename, size: body.length });
+      return id;
+    });
+    return fileOut(ownFile(db, u, id));
+  }));
+  get('/files/:id', (req, db, u, res) => {
+    const f = ownFile(db, u, num(req.params.id, 'file'));
+    const data = db.get('SELECT data FROM class_files WHERE id = ?', f.id)!.data as Uint8Array;
+    res.setHeader('Content-Type', f.mime);
+    res.setHeader('Content-Disposition', `attachment; filename="${f.filename.replace(/[^\w.\- ]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(f.filename)}`);
+    res.end(Buffer.from(data));
+  });
+  put('/files/:id', (req, db, u) => {
+    const f = ownFile(db, u, num(req.params.id, 'file'));
+    const kind = req.body.kind === undefined ? f.kind : ['midterm', 'final', 'other'].includes(req.body.kind) ? req.body.kind : 'other';
+    const title = req.body.title === undefined ? f.title : str(req.body.title, 'Title');
+    db.tx(() => { db.run('UPDATE class_files SET kind = ?, title = ? WHERE id = ?', kind, title, f.id); db.audit(u.id, 'class_file', f.id, 'update', { kind: f.kind, title: f.title }, { kind, title }); });
+    return fileOut(ownFile(db, u, f.id));
+  });
+  del('/files/:id', (req, db, u) => {
+    const f = ownFile(db, u, num(req.params.id, 'file'));
+    db.tx(() => { db.run('DELETE FROM class_files WHERE id = ?', f.id); db.audit(u.id, 'class_file', f.id, 'delete', fileOut(f)); });
+  });
+
   put('/classes/:id/meetings', (req, db, u) => {
     const c = ownClass(db, u, num(req.params.id, 'class'));
     const meetings = list<Row>(req.body.meetings ?? [], 'Meetings', 14);

@@ -62,7 +62,9 @@ export async function download(path: string) {
     const j = await res.json().catch(() => null);
     throw new ApiError(res.status, j?.error ?? 'The export failed.');
   }
-  const name = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? 'export';
+  const cd = res.headers.get('content-disposition') ?? '';
+  const utf8 = /filename\*=UTF-8''([^;]+)/.exec(cd)?.[1];
+  const name = (utf8 ? decodeURIComponent(utf8) : /filename="([^"]+)"/.exec(cd)?.[1]) ?? 'export';
   const url = URL.createObjectURL(await res.blob());
   const a = document.createElement('a');
   a.href = url;

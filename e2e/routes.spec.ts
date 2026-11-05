@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 const ROUTES = [
   '/', '/review', '/review#ids', '/timetable', '/classes',
-  '/classes/1/plan', '/classes/1/attendance', '/classes/1/grades', '/classes/1/roster', '/classes/1/setup',
+  '/classes/1/plan', '/classes/1/attendance', '/classes/1/grades', '/classes/1/roster', '/classes/1/setup', '/classes/1/files',
   '/courses', '/courses/1', '/terms', '/terms/1', '/students', '/students/1',
   '/pay', '/pay#sessions', '/pay#rates', '/pay#adjustments', '/import', '/admin',
   '/settings', '/settings#holidays', '/settings#reminders', '/settings#backup', '/settings#activity',

@@ -10,7 +10,7 @@ import { AppError, DB, type Row } from '../db.ts';
 /** Insert order respects foreign keys. */
 export const BACKUP_TABLES = [
   'users', 'settings', 'courses', 'lessons', 'lesson_parts', 'materials', 'template_weeks', 'terms', 'holidays',
-  'classes', 'meetings', 'sessions', 'teaching_records', 'checkins', 'record_parts', 'schedule_proposals', 'students', 'enrollments',
+  'classes', 'meetings', 'class_files', 'sessions', 'teaching_records', 'checkins', 'record_parts', 'schedule_proposals', 'students', 'enrollments',
   'grade_configs', 'grade_components', 'scores', 'score_archive', 'attendance', 'rates', 'pay_statements', 'pay_statement_lines', 'pay_adjustments', 'payments', 'notification_log', 'audit_log',
 ] as const;
 
@@ -23,11 +23,15 @@ export interface Backup {
   tables: Record<string, Row[]>;
 }
 
+// Binary columns (uploaded files) travel as { $base64: "..." } in the JSON backup.
+const encodeRow = (r: Row) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, v instanceof Uint8Array ? { $base64: Buffer.from(v).toString('base64') } : v]));
+const decodeValue = (v: unknown) => (v && typeof v === 'object' && typeof (v as any).$base64 === 'string' ? Buffer.from((v as any).$base64, 'base64') : v);
+
 const checksum = (tables: Record<string, Row[]>) => createHash('sha256').update(JSON.stringify(tables)).digest('hex');
 
 export function exportBackup(db: DB): Backup {
   const tables: Record<string, Row[]> = {};
-  for (const t of BACKUP_TABLES) tables[t] = db.all(`SELECT * FROM ${t} ORDER BY rowid`);
+  for (const t of BACKUP_TABLES) tables[t] = db.all(`SELECT * FROM ${t} ORDER BY rowid`).map(encodeRow);
   return {
     format: 'krubook-backup',
     schemaVersion: db.schemaVersion,
@@ -44,7 +48,7 @@ export async function exportBackupXlsx(db: DB): Promise<Buffer> {
   const info = wb.addWorksheet('About');
   info.addRows([['KruBook full backup'], ['Exported', b.exportedAt], ['Schema version', b.schemaVersion], ['Checksum (JSON)', b.checksum], ['Restore', 'Restore uses the JSON backup file. This workbook is a readable copy of every table.']]);
   for (const t of BACKUP_TABLES) {
-    const rows = b.tables[t].map((r) => (t === 'users' ? { ...r, password_hash: '(hidden)' } : r));
+    const rows = b.tables[t].map((r) => (t === 'users' ? { ...r, password_hash: '(hidden)' } : t === 'class_files' ? { ...r, data: `(file, ${r.size} bytes)` } : r));
     const ws = wb.addWorksheet(t.slice(0, 31));
     const cols = rows[0] ? Object.keys(rows[0]) : db.all(`PRAGMA table_info(${t})`).map((c) => c.name);
     ws.columns = cols.map((c) => ({ header: c, key: c, width: Math.min(40, Math.max(10, c.length + 2)), style: c.includes('code') || c === 'phone' ? { numFmt: '@' } : {} }));
@@ -77,7 +81,7 @@ export function loadBackup(input: unknown): { db: DB; counts: Record<string, num
           if (t === 'grade_configs' && r.status !== 'draft') { deferredConfigStatus.push([r.id, r.status]); r.status = 'draft'; }
           if (t === 'enrollments' && r.transferred_to_id) { deferredTransfers.push([r.id, r.transferred_to_id]); r.transferred_to_id = null; }
           const keys = Object.keys(r).filter((k) => cols.has(k));
-          db.run(`INSERT INTO ${t} (${keys.join(',')}) VALUES (${keys.map(() => '?').join(',')})`, ...keys.map((k) => r[k]));
+          db.run(`INSERT INTO ${t} (${keys.join(',')}) VALUES (${keys.map(() => '?').join(',')})`, ...keys.map((k) => decodeValue(r[k]) as any));
         }
         if (t === 'scores') for (const [id, status] of deferredConfigStatus) db.run('UPDATE grade_configs SET status = ? WHERE id = ?', status, id);
         if (t === 'enrollments') for (const [id, to] of deferredTransfers) db.run('UPDATE enrollments SET transferred_to_id = ? WHERE id = ?', to, id);
