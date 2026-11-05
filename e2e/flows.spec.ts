@@ -188,6 +188,16 @@ test.describe('signed in', () => {
     await other.close();
   });
 
+  test('pay: "Why this amount" shows the month from the full timetable down to Actual', async ({ page }) => {
+    await page.goto('/pay');
+    await page.getByRole('button', { name: 'Why this amount' }).nth(1).click();
+    await expect(page.getByText('Full timetable')).toBeVisible();
+    await expect(page.getByText(/^Holiday: /).first()).toBeVisible();
+    await expect(page.locator('.breakdown tr.total')).toContainText('Actual');
+    await page.getByRole('button', { name: 'Hide breakdown' }).click();
+    await expect(page.getByText('Full timetable')).toHaveCount(0);
+  });
+
   test('sign out ends the session', async ({ browser }) => {
     // A separate sign-in so the saved session used by the page tests stays valid.
     const page = await browser.newPage({ storageState: undefined });

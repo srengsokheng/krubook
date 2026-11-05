@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import { usePref } from '../prefs.ts';
 import { api, download, useApi } from '../api.ts';
 import { useI18n } from '../i18n.tsx';
+import { PayBreakdown } from '../PayBreakdown.tsx';
+import { Fragment } from 'react';
 import { Confirm, D, Dialog, Empty, ErrorNote, Field, Icon, Loading, Menu, Notice, Pager, Pill, PayMonth, TabBar, money, plural, useAction, useTab, useToast } from '../ui.tsx';
 
 const TABS = ['months', 'sessions', 'rates', 'adjustments'] as const;
@@ -35,7 +37,7 @@ export function Pay() {
 
       <div className="figures">
         <div className="figure"><span className="eyebrow">Hours taught</span><span className="value">{(p.totals.taughtMinutes / 60).toFixed(1)}</span><span className="faint xs">{p.totals.taughtSessions} sessions</span></div>
-        <div className="figure"><span className="eyebrow">Earned</span><span className="value">{money(p.totals.total, cur)}</span>{p.totals.lateSessions > 0 && <span className="faint xs">{plural(p.totals.lateSessions, 'late arrival', 'late arrivals')}{p.totals.deductions > 0 ? ` · −${money(p.totals.deductions, cur)}` : ''}</span>}</div>
+        <div className="figure"><span className="eyebrow">Earned</span><span className="value">{money(p.totals.total, cur)}</span>{(p.totals.lateSessions > 0 || p.totals.holidayPay > 0) && <span className="faint xs">{[p.totals.holidayPay > 0 ? `holidays −${money(p.totals.holidayPay, cur)}` : '', p.totals.lateSessions > 0 ? `${plural(p.totals.lateSessions, 'late arrival', 'late arrivals')}${p.totals.deductions > 0 ? ` −${money(p.totals.deductions, cur)}` : ''}` : ''].filter(Boolean).join(' · ')}</span>}</div>
         <div className="figure"><span className="eyebrow">Paid</span><span className="value">{money(p.totals.paid, cur)}</span></div>
         <div className="figure"><span className="eyebrow">Outstanding</span><span className="value">{money(outstanding, cur)}</span><span className="faint xs">{money(p.totals.approved, cur)} approved · {money(p.totals.estimated, cur)} not yet approved</span></div>
       </div>
@@ -54,6 +56,7 @@ function Months({ p, reload }: { p: any; reload: () => void }) {
   const [paying, setPaying] = useState<any | null>(null);
   const [undo, setUndo] = useState<any | null>(null);
   const [open, setOpen] = useState<number | null>(null);
+  const [why, setWhy] = useState<string | null>(null);
   const cur = p.currency;
   if (!p.months.length) return <div className="panel"><Empty title="No teaching recorded this year">Earnings appear once you record sessions as taught.</Empty></div>;
   const approve = (month: string) => run(() => api('/pay/statements', { body: { month } }), `${month} approved. Its amounts are now fixed.`).then(reload);
@@ -67,10 +70,11 @@ function Months({ p, reload }: { p: any; reload: () => void }) {
               const sts = p.statements.filter((s: any) => s.month === m.month);
               const canApprove = m.estimated !== 0 && m.month <= p.currentMonth;
               return (
-                <tr key={m.month}>
+                <Fragment key={m.month}>
+                <tr>
                   <td data-label="Pay month"><span><PayMonth month={m.month} from={m.from} to={m.to} /></span></td>
                   <td data-label="Expected" className="num"><span>{money(m.expectedTotal, cur)}<div className="faint xs mono">{(m.scheduledMinutes / 60).toFixed(1)} h scheduled{m.adjustments ? ` · ${m.adjustments > 0 ? '+' : '−'}${money(Math.abs(m.adjustments), cur)} adj.` : ''}</div></span></td>
-                  <td data-label="Actual" className="num"><span><b>{money(m.total, cur)}</b><div className="faint xs mono">{(m.taughtMinutes / 60).toFixed(1)} h worked{m.plannedSessions > 0 ? ` · ${m.plannedSessions} to go` : ''}{m.deductions > 0 ? ` · −${money(m.deductions, cur)} late` : ''}</div></span></td>
+                  <td data-label="Actual" className="num"><span><b>{money(m.total, cur)}</b><div className="faint xs mono">{(m.taughtMinutes / 60).toFixed(1)} h worked{m.plannedSessions > 0 ? ` · ${m.plannedSessions} to go` : ''}{m.holidayPay > 0 ? ` · −${money(m.holidayPay, cur)} holidays` : ''}{m.deductions > 0 ? ` · −${money(m.deductions, cur)} late` : ''}</div><button type="button" className="btn ghost sm no-print" aria-expanded={why === m.month} onClick={() => setWhy(why === m.month ? null : m.month)}>{why === m.month ? 'Hide breakdown' : 'Why this amount'}</button></span></td>
                   <td data-label="Status">
                     <div className="row" style={{ gap: 6 }}>
                       {sts.map((s: any) => <button key={s.id} className="btn ghost sm" style={{ padding: 0 }} onClick={() => setOpen(s.id)}><Pill tone={s.status === 'paid' ? (s.paidAmount != null && Math.abs(s.paidAmount - s.total) >= 0.005 ? 'bad' : 'ok') : 'accent'} title={s.status === 'paid' && s.paidAmount != null && Math.abs(s.paidAmount - s.total) >= 0.005 ? `Approved ${money(s.total, cur)}; the school paid ${money(Math.abs(s.paidAmount - s.total), cur)} ${s.paidAmount < s.total ? 'less' : 'more'}` : undefined}>{s.status === 'paid' ? `Paid ${money(s.paidAmount, cur)}${s.paidAmount != null && Math.abs(s.paidAmount - s.total) >= 0.005 ? ` · ${s.paidAmount < s.total ? '−' : '+'}${money(Math.abs(s.paidAmount - s.total), cur)}` : ''}` : `Approved ${money(s.total, cur)}`}</Pill></button>)}
@@ -83,6 +87,8 @@ function Months({ p, reload }: { p: any; reload: () => void }) {
                     {' '}<Link className="btn sm ghost" to={`/print/payslip/${m.month}`} target="_blank"><Icon name="printer" />Payslip</Link></span>
                   </td>
                 </tr>
+                {why === m.month && m.breakdown && <tr className="breakdown-row"><td colSpan={5}><PayBreakdown b={m.breakdown} currency={cur} /></td></tr>}
+                </Fragment>
               );
             })}
           </tbody>

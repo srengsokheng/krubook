@@ -118,3 +118,39 @@ describe('holidays and pay', () => {
     expect(JSON.parse(db.get("SELECT result FROM data_fixes")!.result)).toMatchObject({ holiday: 1 });
   });
 });
+
+describe('pay breakdown', () => {
+  it('goes from the full timetable to Actual: holidays, cancelled, late, not recorded, to come, adjustments', async () => {
+    const { payOverview, payslip } = await import('../server/services/pay.ts');
+    process.env.KRUBOOK_TODAY = '2026-11-04';
+    const taught = (id: number) => { db.run("INSERT INTO teaching_records (session_id, taught_on, minutes) VALUES (?, (SELECT date FROM sessions WHERE id = ?), 90)", id, id); db.run("UPDATE sessions SET status = 'completed' WHERE id = ?", id); };
+    taught(session('2026-10-19', '13:00', '14:30'));                       // worked      13.50
+    const late = session('2026-10-24', '13:00', '14:30'); taught(late);     // worked, 35 min late: cut 13.50
+    db.run("INSERT INTO checkins (session_id, time, source) VALUES (?, '13:35', 'manual')", late);
+    taught(session('2026-10-27', '13:00', '14:30'));                       // on a holiday added later
+    db.run("INSERT INTO holidays (owner_id, date, name, source) VALUES (?, '2026-10-27', 'School closed', 'user')", u.id);
+    cancelSession(db, u, session('2026-10-29', '13:00', '14:30'), 'Holiday: King Norodom Sihamoni’s Coronation Day');
+    cancelSession(db, u, session('2026-10-30', '13:00', '14:30'), 'Teacher sick');
+    session('2026-11-02', '13:00', '14:30');                               // past, not recorded
+    session('2026-11-10', '13:00', '14:30');                               // still to come
+    db.run("INSERT INTO pay_adjustments (owner_id, month, amount, note) VALUES (?, '2026-11', 5, 'Invigilation')", u.id);
+
+    const m = payOverview(db, u, '2026').months.find((x) => x.month === '2026-11')!;
+    expect(m.breakdown).toEqual({
+      timetable: { sessions: 7, minutes: 630, pay: 94.5 },
+      holidays: [
+        { name: 'School closed', sessions: 1, minutes: 90, pay: 13.5 },
+        { name: 'King Norodom Sihamoni’s Coronation Day', sessions: 1, minutes: 90, pay: 13.5 },
+      ],
+      cancelled: { sessions: 1, pay: 13.5 },
+      lateCuts: { sessions: 1, pay: 13.5 },
+      notRecorded: { sessions: 1, pay: 13.5 },
+      toGo: { sessions: 1, pay: 13.5 },
+      adjustments: 5,
+      other: 0,
+      actual: 18.5,
+    });
+    expect(m).toMatchObject({ total: 18.5, holidayPay: 27 });
+    expect(payslip(db, u, '2026-11').breakdown).toEqual(m.breakdown);
+  });
+});

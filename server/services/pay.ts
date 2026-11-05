@@ -129,6 +129,76 @@ export interface MonthSummary {
   scheduledPay: number;      // those sessions at full rate and scheduled length
   adjustments: number;       // the month's adjustments (approved or not)
   expectedTotal: number;     // scheduledPay + adjustments
+  holidayPay: number;        // full pay of classes lost to holidays
+  breakdown?: Breakdown;
+}
+
+// Where a month's money goes: the full timetable at full rate, minus classes lost to holidays (by
+// holiday), other cancelled classes, late cuts, classes not recorded yet and classes still to come,
+// plus adjustments. Whatever is left over (minutes recorded shorter than scheduled, amounts frozen
+// on an approved statement) is "other", so the steps always add up to Actual.
+export interface Breakdown {
+  timetable: { sessions: number; minutes: number; pay: number };
+  holidays: Array<{ name: string; sessions: number; minutes: number; pay: number }>;
+  cancelled: { sessions: number; pay: number };
+  lateCuts: { sessions: number; pay: number };
+  notRecorded: { sessions: number; pay: number };
+  toGo: { sessions: number; pay: number };
+  adjustments: number;
+  other: number;
+  actual: number;
+}
+
+function newBreakdown(): Breakdown {
+  return { timetable: { sessions: 0, minutes: 0, pay: 0 }, holidays: [], cancelled: { sessions: 0, pay: 0 }, lateCuts: { sessions: 0, pay: 0 }, notRecorded: { sessions: 0, pay: 0 }, toGo: { sessions: 0, pay: 0 }, adjustments: 0, other: 0, actual: 0 };
+}
+
+/** Breakdowns per key (pay month) for the sessions dated from..to; `lines` are payLines for the same span. */
+function breakdowns(db: DB, u: User, from: string, to: string, lines: PayLine[], keyOf: (date: string) => string): Map<string, Breakdown> {
+  const now = today(db, u);
+  const rates = loadRates(db, u.id);
+  const hs = loadHolidays(db, u.id);
+  const worked = new Map(lines.map((l) => [l.sessionId, l]));
+  const rows = db.all(
+    `SELECT s.id, s.date, s.start_time, s.end_time, s.status, s.note, s.holiday_exception, s.class_id, c.course_id, c.term_id, k.time AS checkin
+       FROM sessions s JOIN classes c ON c.id = s.class_id LEFT JOIN checkins k ON k.session_id = s.id
+      WHERE c.teacher_id = ? AND s.status <> 'moved' AND s.date BETWEEN ? AND ?`,
+    u.id, from, to,
+  );
+  const out = new Map<string, Breakdown>();
+  const get = (k: string) => { if (!out.has(k)) out.set(k, newBreakdown()); return out.get(k)!; };
+  for (const s of rows) {
+    const b = get(keyOf(s.date));
+    const minutes = durationMinutes(s.start_time, s.end_time);
+    const full = sessionPay(resolveRate(rates, { classId: s.class_id, courseId: s.course_id, date: s.date }), minutes);
+    b.timetable.sessions++; b.timetable.minutes += minutes; b.timetable.pay += full;
+    const l = worked.get(s.id);
+    if (l) { if (l.deduction > 0) { b.lateCuts.sessions++; b.lateCuts.pay += l.deduction; } continue; }
+    const held = s.status === 'planned' || s.status === 'completed';
+    const holidayName = held
+      ? (unpaidHoliday(hs, s) ? holidayOn(hs, s.date, s.term_id)?.name : null)
+      : /^Holiday:/.test(s.note ?? '') ? String(s.note).replace(/^Holiday:\s*/, '') : null;
+    if (holidayName) {
+      let h = b.holidays.find((x) => x.name === holidayName);
+      if (!h) b.holidays.push((h = { name: holidayName, sessions: 0, minutes: 0, pay: 0 }));
+      h.sessions++; h.minutes += minutes; h.pay += full;
+    } else if (!held) { b.cancelled.sessions++; b.cancelled.pay += full; }
+    else if (s.date >= now) { b.toGo.sessions++; b.toGo.pay += full; }
+    else { b.notRecorded.sessions++; b.notRecorded.pay += full; }
+  }
+  return out;
+}
+
+/** Rounds a breakdown and closes it against the month's actual total and adjustments. */
+function finishBreakdown(b: Breakdown, actual: number, adjustments: number): Breakdown {
+  const lost = b.holidays.reduce((x, h) => x + h.pay, 0) + b.cancelled.pay + b.lateCuts.pay + b.notRecorded.pay + b.toGo.pay;
+  b.adjustments = r2(adjustments);
+  b.actual = r2(actual);
+  b.other = r2(actual - (b.timetable.pay - lost + adjustments));
+  b.timetable.pay = r2(b.timetable.pay);
+  for (const h of b.holidays) h.pay = r2(h.pay);
+  for (const k of ['cancelled', 'lateCuts', 'notRecorded', 'toGo'] as const) b[k].pay = r2(b[k].pay);
+  return b;
 }
 
 export function payOverview(db: DB, u: User, year: string) {
@@ -140,7 +210,7 @@ export function payOverview(db: DB, u: User, year: string) {
   const rates = loadRates(db, u.id);
   const months = new Map<string, MonthSummary>();
   const get = (m: string) => {
-    if (!months.has(m)) months.set(m, { month: m, ...payPeriod(m, sd), taughtSessions: 0, taughtMinutes: 0, makeupSessions: 0, unratedSessions: 0, lateSessions: 0, deductions: 0, estimated: 0, approved: 0, paid: 0, total: 0, expected: 0, plannedSessions: 0, scheduledSessions: 0, scheduledMinutes: 0, scheduledPay: 0, adjustments: 0, expectedTotal: 0 });
+    if (!months.has(m)) months.set(m, { month: m, ...payPeriod(m, sd), taughtSessions: 0, taughtMinutes: 0, makeupSessions: 0, unratedSessions: 0, lateSessions: 0, deductions: 0, estimated: 0, approved: 0, paid: 0, total: 0, expected: 0, plannedSessions: 0, scheduledSessions: 0, scheduledMinutes: 0, scheduledPay: 0, adjustments: 0, expectedTotal: 0, holidayPay: 0 });
     return months.get(m)!;
   };
   for (const l of lines) {
@@ -188,7 +258,13 @@ export function payOverview(db: DB, u: User, year: string) {
   // Past sessions with neither a teaching record nor a check-in (and not on a holiday) are not paid
   // until decided.
   const unrecorded = scheduled.filter((p) => p.status === 'planned' && p.date < now && !p.checkin && !p.on_statement && !unpaidHoliday(hs, p)).length;
-  const list = [...months.values()].map((m) => ({ ...m, estimated: r2(m.estimated), deductions: r2(m.deductions), approved: r2(m.approved), paid: r2(m.paid), expected: r2(m.expected), scheduledPay: r2(m.scheduledPay), adjustments: r2(m.adjustments), expectedTotal: r2(m.scheduledPay + m.adjustments), total: r2(m.total + m.estimated) })).sort((a, b) => a.month.localeCompare(b.month));
+  const bd = breakdowns(db, u, from, to, lines, (d) => payMonthOf(d, sd));
+  for (const k of bd.keys()) get(k);
+  const list = [...months.values()].map((m) => ({ ...m, estimated: r2(m.estimated), deductions: r2(m.deductions), approved: r2(m.approved), paid: r2(m.paid), expected: r2(m.expected), scheduledPay: r2(m.scheduledPay), adjustments: r2(m.adjustments), expectedTotal: r2(m.scheduledPay + m.adjustments), total: r2(m.total + m.estimated) })).sort((a, b) => a.month.localeCompare(b.month))
+    .map((m) => {
+      const breakdown = finishBreakdown(bd.get(m.month) ?? newBreakdown(), m.total, m.adjustments);
+      return { ...m, breakdown, holidayPay: r2(breakdown.holidays.reduce((x, h) => x + h.pay, 0)) };
+    });
   const sum = (k: keyof MonthSummary) => r2(list.reduce((s, m) => s + (m[k] as number), 0));
   return {
     year,
@@ -196,7 +272,7 @@ export function payOverview(db: DB, u: User, year: string) {
     currentMonth: payMonthOf(now, sd),
     currency: rates[0]?.currency ?? 'USD',
     months: list,
-    totals: { taughtSessions: sum('taughtSessions'), taughtMinutes: sum('taughtMinutes'), lateSessions: sum('lateSessions'), deductions: sum('deductions'), estimated: sum('estimated'), approved: sum('approved'), paid: sum('paid'), total: sum('total'), expected: sum('expected'), scheduledMinutes: sum('scheduledMinutes'), scheduledPay: sum('scheduledPay'), expectedTotal: sum('expectedTotal') },
+    totals: { taughtSessions: sum('taughtSessions'), taughtMinutes: sum('taughtMinutes'), lateSessions: sum('lateSessions'), deductions: sum('deductions'), estimated: sum('estimated'), approved: sum('approved'), paid: sum('paid'), total: sum('total'), expected: sum('expected'), scheduledMinutes: sum('scheduledMinutes'), scheduledPay: sum('scheduledPay'), expectedTotal: sum('expectedTotal'), holidayPay: sum('holidayPay') },
     statements: statements.map(statementOut),
     rates: loadRates(db, u.id, true),
     lateRule: loadLateRule(db, u.id),
@@ -350,8 +426,9 @@ export function payslip(db: DB, u: User, month: string) {
   const paid = statements.filter((s) => s.status === 'paid');
   const paidAmount = paid.length ? r2(paid.reduce((s, x) => s + (x.paidAmount ?? x.total), 0)) : null;
   const paidStatementTotal = r2(paid.reduce((s, x) => s + x.total, 0));
+  const breakdown = finishBreakdown(breakdowns(db, u, from, to, [...worked.values()], () => month).get(month) ?? newBreakdown(), actual, adj);
   return {
-    month, from, to, teacher: u.name, currency: rates[0]?.currency ?? 'USD', lateRule: loadLateRule(db, u.id),
+    month, from, to, teacher: u.name, breakdown, currency: rates[0]?.currency ?? 'USD', lateRule: loadLateRule(db, u.id),
     rows,
     adjustments: adjustments.map((a) => ({ id: a.id, amount: a.amount, note: a.note })),
     statements,

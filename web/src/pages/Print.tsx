@@ -2,6 +2,7 @@ import { Route, Routes, useParams } from 'react-router-dom';
 import { useApi } from '../api.ts';
 import { ErrorNote, Icon, Loading, PayMonth, fmt, money } from '../ui.tsx';
 import { formatDate } from '../../../shared/dates.ts';
+import { PayBreakdown } from '../PayBreakdown.tsx';
 
 // Print layouts for "Save as PDF". The browser shapes Khmer text with the bundled Kantumruy Pro
 // font, so Khmer names print correctly; table headers repeat on every page.
@@ -147,6 +148,7 @@ function PrintPayslip() {
         <div className="figure"><span className="eyebrow">Actual</span><span className="value">{money(t.actual, cur)}</span><span className="faint xs">{t.workedSessions} worked · {(t.workedMinutes / 60).toFixed(1)} h{t.adjustments ? ` · adjustments ${money(t.adjustments, cur)}` : ''}</span></div>
         <div className="figure"><span className="eyebrow">Paid by the school</span><span className="value">{t.paid == null ? '—' : money(t.paid, cur)}</span>{t.difference != null && t.difference !== 0 && <span className="xs" style={{ color: 'var(--bad)', fontWeight: 600 }}>{t.difference < 0 ? `${money(-t.difference, cur)} less than approved` : `${money(t.difference, cur)} more than approved`}</span>}</div>
       </div>
+      <div style={{ maxWidth: 560, marginBottom: 16 }}><h2 className="small" style={{ marginBottom: 6 }}>How this month adds up</h2><PayBreakdown b={p.breakdown} currency={cur} /></div>
       {(t.notRecorded > 0 || t.planned > 0) && <p className="small" style={{ marginBottom: 12 }}>{t.notRecorded > 0 && <><b>{t.notRecorded}</b> past session{t.notRecorded > 1 ? 's are' : ' is'} not recorded yet and not paid. </>}{t.planned > 0 && <><b>{t.planned}</b> session{t.planned > 1 ? 's are' : ' is'} still ahead.</>}</p>}
       <div className="print-scroll">
         <table className="table">

@@ -219,6 +219,12 @@ is left out of Expected, even if it was recorded as taught (for example imported
 before the holiday was entered), unless it is marked as taught on a holiday or has a check-in. The
 payslip lists it as "Not held: Holiday: …". Approved statements keep what they were approved with.
 
+**Why this amount** (Pay › By month, and at the top of each payslip) walks a month from the full
+timetable at full pay down to Actual: each holiday (classes and pay lost), other cancelled classes,
+late cuts, classes not recorded yet, classes still to come and adjustments. Anything else, such as
+minutes recorded shorter than scheduled or amounts frozen on an approved statement, is shown as
+"other differences", so the steps always add up.
+
 Each pay month shows two figures. **Expected** is every session scheduled in the period that is not
 cancelled (holidays cancel sessions), at full rate and scheduled length, plus adjustments. **Actual**
 is what was worked, after late cuts, plus adjustments. An approved statement stores each session's
