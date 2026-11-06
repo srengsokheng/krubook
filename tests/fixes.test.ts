@@ -213,3 +213,15 @@ describe('classes cancelled for a holiday that was later shortened', () => {
     } finally { server.close(); hdb.close(); rmSync(dir, { recursive: true, force: true }); }
   });
 });
+
+describe('backup administrator', () => {
+  it('is created once, as an admin who must change the password at first sign-in', () => {
+    runDataFixes(db);
+    const a = db.get("SELECT role, status, must_change_password, password_hash FROM users WHERE email = 'admin@setecattendance.online'")!;
+    expect(a).toMatchObject({ role: 'admin', status: 'active', must_change_password: 1 });
+    expect(a.password_hash).toMatch(/^scrypt\$/);
+    expect(JSON.parse(db.get("SELECT result FROM data_fixes WHERE name = '2026-11-06-backup-admin'")!.result)).toEqual({ created: 'admin@setecattendance.online' });
+    runDataFixes(db);
+    expect(db.get("SELECT COUNT(*) AS n FROM users WHERE email = 'admin@setecattendance.online'")!.n).toBe(1);
+  });
+});

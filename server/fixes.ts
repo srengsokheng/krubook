@@ -2,7 +2,7 @@
 // (recorded in data_fixes with what it did) and only through the app's normal save paths. A fix
 // that cannot tell exactly whose data it is for changes nothing and records why.
 import type { DB, Row } from './db.ts';
-import type { User } from './auth.ts';
+import { seedAccount, type User } from './auth.ts';
 import { completeSession, restoreStaleHolidayCancellations } from './services/plan.ts';
 import { loadHolidays, unpaidHoliday } from './services/pay.ts';
 import { getSetting, today } from './services/access.ts';
@@ -84,6 +84,21 @@ const FIXES: Fix[] = [
       const ids = restored.filter((r) => r.date >= '2026-10-16' && r.date <= '2026-11-04').map((r) => r.sessionId);
       const sessions = ids.length ? db.all(`SELECT s.*, c.term_id FROM sessions s JOIN classes c ON c.id = s.class_id WHERE s.id IN (${ids.join(',')}) ORDER BY s.date, s.start_time`) : [];
       return { restored: restored.map((r) => `${r.date} (${r.was})`), ...recordAttended(db, u, sessions, 'Recorded on request: restored after the holiday was corrected; attended.') };
+    },
+  },  {
+    // 6 Nov 2026: the owner was locked out and was the only administrator, so nobody could reset
+    // their password in the app. Add a backup administrator with a one-time password (only its
+    // scrypt hash is here) that must be changed at the first sign-in; from it, Accounts › Reset
+    // password works for the owner's account. Skipped if the email is already taken.
+    name: '2026-11-06-backup-admin',
+    run(db) {
+      const email = 'admin@setecattendance.online';
+      if (db.get('SELECT 1 FROM users WHERE email = ?', email)) return { skipped: 'account already exists' };
+      const id = db.run("INSERT INTO users (email, name, password_hash, role, must_change_password, note) VALUES (?, 'Backup admin', ?, 'admin', 1, 'Backup administrator for password resets')",
+        email, 'scrypt$ucyUt/uuZBsGrCIIsOhgsw==$v6n9/Y9Fw0/dyVUirRn3ls8DpY4rpc9mfo+fA2Jv352uCXdR9lQCJY0pDjQfGOgubRyJIq1tXwK8VCgi7sD/8w==').id;
+      seedAccount(db, id);
+      db.audit(null, 'user', id, 'create', undefined, { email, role: 'admin', fix: '2026-11-06' });
+      return { created: email };
     },
   },
 ];
