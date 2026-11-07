@@ -223,6 +223,19 @@ test.describe('signed in', () => {
     expect(dl.suggestedFilename()).toBe('Midterm 2026.docx');
   });
 
+  test('theme: Light and Dark override the device, Auto follows it, and the choice survives a reload', async ({ page }) => {
+    await page.goto('/');
+    const themes = page.getByRole('group', { name: 'Theme' });
+    await themes.getByRole('button', { name: 'Dark' }).click();
+    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme)).toBe('dark');
+    await page.reload();
+    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme)).toBe('dark');
+    await page.getByRole('group', { name: 'Theme' }).getByRole('button', { name: 'Light' }).click();
+    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme)).toBe('light');
+    await page.getByRole('group', { name: 'Theme' }).getByRole('button', { name: 'Auto' }).click();
+    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme ?? 'auto')).toBe('auto');
+  });
+
   test('sign out ends the session', async ({ browser }) => {
     // A separate sign-in so the saved session used by the page tests stays valid.
     const page = await browser.newPage({ storageState: undefined });

@@ -4,7 +4,7 @@ import { useI18n, type Lang } from '../i18n.tsx';
 import { Confirm, D, Empty, ErrorNote, Field, Icon, Loading, Notice, Pager, Pill, TabBar, useAction, useTab, useToast } from '../ui.tsx';
 import { HolidayCheck } from './Terms.tsx';
 import { diffDays } from '../../../shared/dates.ts';
-import { usePref } from '../prefs.ts';
+import { usePref, type Theme } from '../prefs.ts';
 import type { Me } from '../App.tsx';
 
 const STATUS_KEYS = ['planned', 'completed', 'cancelled', 'skipped', 'moved', 'ahead', 'on_schedule', 'behind', 'not_started'];
@@ -28,6 +28,7 @@ export function Settings({ me }: { me: Me }) {
   const [confirmRestore, setConfirmRestore] = useState(false);
   const [year, setYear] = useState(String(new Date().getFullYear()));
   const { busy, run } = useAction();
+  const [theme, setTheme] = usePref<Theme>('view.theme', 'auto');
   useEffect(() => { if (s) { setF({ timezone: s.timezone, payPeriodStart: s.payPeriodStart, notifyEnabled: s.notifyEnabled, notifyCheckin: s.notifyCheckin, autoRecordTaught: s.autoRecordTaught, notifyTime: s.notifyTime, telegramChat: s.telegramChat, telegramToken: '' }); setLabels(s.statusLabels ?? {}); } }, [s]);
   if (error) return <div className="page"><ErrorNote error={error} retry={reload} /></div>;
   if (!s || !f) return <div className="page"><Loading /></div>;
@@ -52,6 +53,9 @@ export function Settings({ me }: { me: Me }) {
               <div className="seg">{(['en', 'km'] as Lang[]).map((l) => <button key={l} className={lang === l ? 'on' : ''} onClick={() => setLang(l)}>{l === 'en' ? 'English' : 'ខ្មែរ'}</button>)}</div>
             </Field>
             <p className="faint xs">The Khmer interface covers navigation, headings, statuses and common actions; longer help text is still in English.</p>
+            <Field label="Theme" hint="Auto follows your device's light or dark setting.">
+              <div className="seg" role="group" aria-label="Theme setting">{(['auto', 'light', 'dark'] as Theme[]).map((x) => <button key={x} className={theme === x ? 'on' : ''} aria-pressed={theme === x} onClick={() => setTheme(x)}>{x === 'auto' ? 'Auto' : x === 'light' ? 'Light' : 'Dark'}</button>)}</div>
+            </Field>
             <Field label="Time zone" hint={`“Today” is ${s.today} in this zone. Cambodia does not use daylight saving time.`}><input id="st-tz" value={f.timezone} onChange={(e) => setF({ ...f, timezone: e.target.value })} /></Field>
             <Field label="Pay period" hint={+f.payPeriodStart === 1 ? 'Each calendar month is paid on its own.' : `Teaching from the ${ordinal(+f.payPeriodStart)} of one month to the ${ordinal(+f.payPeriodStart - 1)} of the next is paid as the later month (e.g. ${f.payPeriodStart} Aug – ${+f.payPeriodStart - 1} Sep is September pay).`}>
               <select id="st-pay" value={f.payPeriodStart} onChange={(e) => setF({ ...f, payPeriodStart: +e.target.value })}>

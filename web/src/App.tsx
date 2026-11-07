@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
 import { BrowserRouter, NavLink, Route, Routes, useNavigate } from 'react-router-dom';
-import { clearPrefs, loadPrefs } from './prefs.ts';
+import { clearPrefs, loadPrefs, usePref, type Theme } from './prefs.ts';
 import { api } from './api.ts';
 import { I18nProvider, useI18n } from './i18n.tsx';
 import { Icon, Loading, Notice, ToastProvider } from './ui.tsx';
@@ -138,6 +138,7 @@ function Shell({ me, onSignOut, children }: { me: Me; onSignOut: () => void; chi
         </nav>
         <div className="sidebar-foot">
           <SyncBadge />
+          <ThemeSwitch />
           <div className="seg" role="group" aria-label={t('Language')}>
             <button className={lang === 'en' ? 'on' : ''} onClick={() => setLang('en')}>English</button>
             <button className={lang === 'km' ? 'on' : ''} onClick={() => setLang('km')}>ខ្មែរ</button>
@@ -154,6 +155,16 @@ function Shell({ me, onSignOut, children }: { me: Me; onSignOut: () => void; chi
       <nav className="bottom-nav" aria-label="Main">
         {[NAV[0], NAV[1], NAV[2], NAV[3], NAV[9]].map(([to, label, icon]) => <NavLink key={to} to={to} end={to === '/'}><Icon name={icon} />{t(label)}</NavLink>)}
       </nav>
+    </div>
+  );
+}
+
+function ThemeSwitch() {
+  const [theme, setTheme] = usePref<Theme>('view.theme', 'auto');
+  const label: Record<Theme, string> = { auto: 'Auto', light: 'Light', dark: 'Dark' };
+  return (
+    <div className="seg" role="group" aria-label="Theme" title="Auto follows your device's light or dark setting">
+      {(['auto', 'light', 'dark'] as Theme[]).map((x) => <button key={x} className={theme === x ? 'on' : ''} aria-pressed={theme === x} onClick={() => setTheme(x)}>{label[x]}</button>)}
     </div>
   );
 }
