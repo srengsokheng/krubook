@@ -11,7 +11,7 @@ import { AppError, DB, type Row } from '../db.ts';
 export const BACKUP_TABLES = [
   'users', 'settings', 'courses', 'lessons', 'lesson_parts', 'materials', 'template_weeks', 'terms', 'holidays',
   'classes', 'meetings', 'class_files', 'sessions', 'teaching_records', 'checkins', 'record_parts', 'schedule_proposals', 'students', 'enrollments',
-  'grade_configs', 'grade_components', 'scores', 'score_archive', 'attendance', 'rates', 'pay_statements', 'pay_statement_lines', 'pay_adjustments', 'payments', 'notification_log', 'audit_log',
+  'grade_configs', 'grade_components', 'scores', 'score_archive', 'attendance', 'rates', 'pay_statements', 'pay_statement_lines', 'pay_adjustments', 'payments', 'slide_files', 'slide_lessons', 'notification_log', 'audit_log',
 ] as const;
 
 export interface Backup {
@@ -48,7 +48,7 @@ export async function exportBackupXlsx(db: DB): Promise<Buffer> {
   const info = wb.addWorksheet('About');
   info.addRows([['KruBook full backup'], ['Exported', b.exportedAt], ['Schema version', b.schemaVersion], ['Checksum (JSON)', b.checksum], ['Restore', 'Restore uses the JSON backup file. This workbook is a readable copy of every table.']]);
   for (const t of BACKUP_TABLES) {
-    const rows = b.tables[t].map((r) => (t === 'users' ? { ...r, password_hash: '(hidden)' } : t === 'class_files' ? { ...r, data: `(file, ${r.size} bytes)` } : r));
+    const rows = b.tables[t].map((r) => (t === 'users' ? { ...r, password_hash: '(hidden)' } : t === 'class_files' || t === 'slide_files' ? { ...r, data: `(file, ${r.size} bytes)` } : r));
     const ws = wb.addWorksheet(t.slice(0, 31));
     const cols = rows[0] ? Object.keys(rows[0]) : db.all(`PRAGMA table_info(${t})`).map((c) => c.name);
     ws.columns = cols.map((c) => ({ header: c, key: c, width: Math.min(40, Math.max(10, c.length + 2)), style: c.includes('code') || c === 'phone' ? { numFmt: '@' } : {} }));

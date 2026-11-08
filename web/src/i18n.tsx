@@ -13,6 +13,7 @@ const km: Record<string, string> = {
   Pay: 'ម៉ោងបង្រៀន និងប្រាក់',
   Settings: 'ការកំណត់',
   'Update from Excel': 'ធ្វើបច្ចុប្បន្នភាពពី Excel',
+  'Lesson slides': 'ស្លាយមេរៀន',
   'Sign out': 'ចាកចេញ',
   'Sign in': 'ចូលប្រើ',
   Email: 'អ៊ីមែល',

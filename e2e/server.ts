@@ -5,8 +5,11 @@ import { join } from 'node:path';
 import { createApp, createHolder } from '../server/app.ts';
 import { seedDemo } from '../server/seed.ts';
 import { buildWorkbook } from '../tests/fixtures/workbook.ts';
+import { bookPdf, sampleDeck } from '../tests/fixtures/slides.ts';
 
 process.env.KRUBOOK_TODAY ??= '2026-10-24';
+// Lesson slides are "written" by copying the sample deck, so no Claude API key is needed.
+process.env.KRUBOOK_SLIDES_WRITER ??= 'sample-copy';
 const holder = createHolder(join(mkdtempSync(join(tmpdir(), 'krubook-e2e-')), 'e2e.sqlite'));
 seedDemo(holder.db);
 // A student with a very long name, to catch clipping and overflow.
@@ -15,5 +18,8 @@ holder.db.run("INSERT INTO enrollments (student_id, class_id, enrolled_on) VALUE
 // A small teaching workbook for the "Update from Excel" test to upload.
 mkdirSync('e2e-results', { recursive: true });
 writeFileSync('e2e-results/workbook.xlsx', await buildWorkbook({ completedWeeks: 1, students: [{ km: 'សុខ ដារ៉ា', latin: 'Sok Dara', scores: [8, null, null, null, null, null, null] }] }));
+// A sample deck and a book for the lesson slides test.
+writeFileSync('e2e-results/sample.pptx', await sampleDeck());
+writeFileSync('e2e-results/book.pdf', await bookPdf(8));
 const port = Number(process.env.E2E_PORT ?? 4320);
 createApp(holder, { staticDir: join(import.meta.dirname, '..', 'web', 'dist') }).listen(port, '127.0.0.1', () => console.log(`e2e server on ${port}`));

@@ -603,4 +603,39 @@ CREATE TABLE class_files (
 );
 CREATE INDEX class_files_class ON class_files(class_id, kind);
 `,
+  /* 9: lesson slides written from a book in the style of a sample deck */ `
+CREATE TABLE app_secrets (
+  name TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE slide_files (
+  id INTEGER PRIMARY KEY,
+  owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('sample','book')),
+  title TEXT NOT NULL,
+  filename TEXT NOT NULL,
+  size INTEGER NOT NULL CHECK (size > 0),
+  info TEXT NOT NULL DEFAULT '{}',
+  data BLOB NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX slide_files_owner ON slide_files(owner_id, kind);
+CREATE TABLE slide_lessons (
+  id INTEGER PRIMARY KEY,
+  owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  sample_id INTEGER REFERENCES slide_files(id) ON DELETE SET NULL,
+  book_id INTEGER REFERENCES slide_files(id) ON DELETE SET NULL,
+  title TEXT NOT NULL,
+  request TEXT NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL CHECK (status IN ('working','ready','failed')),
+  error TEXT,
+  slides TEXT NOT NULL DEFAULT '[]',
+  usage TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX slide_lessons_owner ON slide_lessons(owner_id, created_at);
+`,
 ];

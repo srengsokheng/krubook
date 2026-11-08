@@ -65,6 +65,7 @@ export function Admin({ me }: { me: Me }) {
         {!teachers.length && <Empty title="No teacher accounts yet">Add an account for each teacher who uses KruBook. They get a temporary password and choose their own at first sign-in.</Empty>}
       </div>
       <p className="faint xs">After the access-until date a teacher can still sign in, view and export, but cannot change anything until you extend it. Administrators have no limit.</p>
+      <ClaudeKey />
 
       {edit && <AccountForm a={edit} features={data.features} isSelf={edit.id === me.id} onClose={() => setEdit(null)} onSaved={(r) => { reload(); if (r?.temporaryPassword) setSecret({ email: r.account.email, password: r.temporaryPassword, isNew: true }); }} />}
       {secret && <TemporaryPassword {...secret} onClose={() => setSecret(null)} />}
@@ -80,6 +81,29 @@ function extend(from: string | null, months: number): string {
   const d = new Date(`${base}T00:00:00Z`);
   d.setUTCMonth(d.getUTCMonth() + months);
   return d.toISOString().slice(0, 10);
+}
+
+/** The Claude API key used to write lesson slides; only its last four characters are ever shown. */
+function ClaudeKey() {
+  const { data, reload } = useApi<{ ready: boolean; source: 'env' | 'admin' | 'demo' | null; ending: string | null }>('/admin/ai-key');
+  const [key, setKey] = useState('');
+  const { busy, run } = useAction();
+  if (!data) return null;
+  return (
+    <section className="panel" style={{ marginTop: 24 }}>
+      <div className="panel-head"><h2>Claude API key</h2>{data.source === 'env' || data.source === 'admin' ? <Pill tone="ok">set · ends in {data.ending}</Pill> : <Pill tone="warn">not set</Pill>}</div>
+      <div className="panel-body stack">
+        <p className="small" style={{ margin: 0 }}>Used by <b>Lesson slides</b> to write lessons from a book. Create a key at console.anthropic.com (API keys) and add credit there; each lesson costs roughly $0.30–$1. Every account with Lesson slides switched on uses this key.</p>
+        {data.source === 'env' ? <p className="faint small" style={{ margin: 0 }}>The key comes from the server settings (ANTHROPIC_API_KEY) and is changed there.</p> : (
+          <div className="row">
+            <input id="ai-key" type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} placeholder={data.ending ? 'Paste a new key to replace it' : 'sk-ant-…'} style={{ flex: 1, minWidth: 220 }} />
+            <button className="btn primary" disabled={busy || !key.trim()} onClick={() => run(() => api('/admin/ai-key', { method: 'PUT', body: { key } }), 'Claude API key saved').then((r) => { if (r) { setKey(''); reload(); } })}>Save key</button>
+            {data.source === 'admin' && <button className="btn danger" disabled={busy} onClick={() => run(() => api('/admin/ai-key', { method: 'DELETE' }), 'Claude API key removed').then(reload)}>Remove</button>}
+          </div>
+        )}
+      </div>
+    </section>
+  );
 }
 
 function AccountForm({ a, features, isSelf, onClose, onSaved }: { a: Partial<Account>; features: Feature[]; isSelf: boolean; onClose: () => void; onSaved: (r: any) => void }) {

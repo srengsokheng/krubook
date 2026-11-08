@@ -25,8 +25,9 @@ const Settings = lazy(() => import('./pages/Settings.tsx').then((m) => ({ defaul
 const PrintView = lazy(() => import('./pages/Print.tsx').then((m) => ({ default: m.PrintView })));
 const Review = lazy(() => import('./pages/Review.tsx').then((m) => ({ default: m.Review })));
 const Admin = lazy(() => import('./pages/Admin.tsx').then((m) => ({ default: m.Admin })));
+const Slides = lazy(() => import('./pages/Slides.tsx').then((m) => ({ default: m.Slides })));
 const ImportWorkbook = lazy(() => import('./pages/ImportWorkbook.tsx').then((m) => ({ default: m.ImportWorkbook })));
-const PAGE_MODULES = [() => import('./pages/Dashboard.tsx'), () => import('./pages/Timetable.tsx'), () => import('./pages/Classes.tsx'), () => import('./pages/ClassDetail.tsx'), () => import('./pages/Courses.tsx'), () => import('./pages/Terms.tsx'), () => import('./pages/Students.tsx'), () => import('./pages/Pay.tsx'), () => import('./pages/Settings.tsx'), () => import('./pages/Print.tsx'), () => import('./pages/Review.tsx'), () => import('./pages/ImportWorkbook.tsx')];
+const PAGE_MODULES = [() => import('./pages/Dashboard.tsx'), () => import('./pages/Timetable.tsx'), () => import('./pages/Classes.tsx'), () => import('./pages/ClassDetail.tsx'), () => import('./pages/Courses.tsx'), () => import('./pages/Terms.tsx'), () => import('./pages/Students.tsx'), () => import('./pages/Pay.tsx'), () => import('./pages/Settings.tsx'), () => import('./pages/Print.tsx'), () => import('./pages/Review.tsx'), () => import('./pages/ImportWorkbook.tsx'), () => import('./pages/Slides.tsx')];
 /** After sign-in, fetch every page in the background so they open instantly and work offline. */
 function preloadPages() {
   const go = () => PAGE_MODULES.forEach((load) => load().catch(() => {}));
@@ -87,6 +88,7 @@ function Gate() {
           <Route path="/students" element={<Students />} />
           <Route path="/students/:id" element={<StudentDetail />} />
           <Route path="/pay" element={<Pay />} />
+          <Route path="/slides" element={<Slides me={me} />} />
           <Route path="/settings" element={<Settings me={me} />} />
           <Route path="*" element={<div className="page"><h1>Page not found</h1><NavLink to="/">Back to the dashboard</NavLink></div>} />
         </Routes>
@@ -103,6 +105,7 @@ const NAV: Array<[string, string, string]> = [
   ['/students', 'Students', 'users'],
   ['/courses', 'Courses', 'book'],
   ['/terms', 'Terms', 'term'],
+  ['/slides', 'Lesson slides', 'slides'],
   ['/pay', 'Pay', 'coins'],
   ['/review', 'Review', 'check'],
   ['/import', 'Update from Excel', 'upload'],
@@ -110,7 +113,7 @@ const NAV: Array<[string, string, string]> = [
 ];
 
 // Pages that belong to a feature an administrator can switch off for an account.
-const NAV_FEATURE: Record<string, string> = { '/pay': 'pay', '/import': 'import' };
+const NAV_FEATURE: Record<string, string> = { '/pay': 'pay', '/import': 'import', '/slides': 'slides' };
 
 function Shell({ me, onSignOut, children }: { me: Me; onSignOut: () => void; children: ReactNode }) {
   const { t, lang, setLang } = useI18n();
@@ -153,7 +156,7 @@ function Shell({ me, onSignOut, children }: { me: Me; onSignOut: () => void; chi
         {children}
       </main>
       <nav className="bottom-nav" aria-label="Main">
-        {[NAV[0], NAV[1], NAV[2], NAV[3], NAV[9]].map(([to, label, icon]) => <NavLink key={to} to={to} end={to === '/'}><Icon name={icon} />{t(label)}</NavLink>)}
+        {[...NAV.slice(0, 4), NAV.find(([to]) => to === '/settings')!].map(([to, label, icon]) => <NavLink key={to} to={to} end={to === '/'}><Icon name={icon} />{t(label)}</NavLink>)}
       </nav>
     </div>
   );

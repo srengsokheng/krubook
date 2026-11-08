@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { AppError, translateDbError, type DB, type Row } from './db.ts';
 import { addAccount, checkLoginRate, endSession, requireUser, sessionToken, startSession, verifyPassword, type User } from './auth.ts';
+import * as slides from './services/slides/lessons.ts';
 import * as accounts from './services/accounts.ts';
 import { accessExpired, featureOf, FEATURES } from '../shared/accounts.ts';
 import { classScope, getSetting, payStartDay, ownClass, ownCourse, ownEnrollment, ownLesson, ownPart, ownSession, ownStudent, ownTerm, setSetting, today } from './services/access.ts';
@@ -576,6 +577,31 @@ export function buildRouter(holder: DBHolder): Router {
     const f = ownFile(db, u, num(req.params.id, 'file'));
     db.tx(() => { db.run('DELETE FROM class_files WHERE id = ?', f.id); db.audit(u.id, 'class_file', f.id, 'delete', fileOut(f)); });
   });
+
+  // ---- Lesson slides written from a book in the style of a sample deck -----------------------
+  const sendFile = (res: Response, f: { filename: string; mime: string; data: Buffer }) => {
+    res.setHeader('Content-Type', f.mime);
+    res.setHeader('Content-Disposition', `attachment; filename="${f.filename.replace(/[^\w.\- ]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(f.filename)}`);
+    res.end(f.data);
+  };
+  get('/slides/status', (_req, db) => slides.keyStatus(db));
+  get('/slides/files', (_req, db, u) => slides.listFiles(db, u));
+  r.post('/slides/files', express.raw({ type: '*/*', limit: '60mb' }), wrap((req, db, u) =>
+    slides.addFile(db, u, req.body as Buffer, String(req.query.filename ?? ''), req.query.title ? String(req.query.title) : null)));
+  put('/slides/files/:id', (req, db, u) => slides.renameFile(db, u, num(req.params.id, 'file'), req.body?.title));
+  del('/slides/files/:id', (req, db, u) => slides.deleteFile(db, u, num(req.params.id, 'file')));
+  get('/slides/files/:id/download', (req, db, u, res) => sendFile(res, slides.fileDownload(db, u, num(req.params.id, 'file'))));
+  get('/slides/samples/:id', (req, db, u) => slides.sampleSlides(db, u, num(req.params.id, 'sample deck')));
+  get('/slides/lessons', (_req, db, u) => slides.listLessons(db, u));
+  post('/slides/lessons', (req, db, u) => slides.startLesson(db, u, req.body ?? {}, () => holder.db));
+  get('/slides/lessons/:id', (req, db, u) => slides.getLesson(db, u, num(req.params.id, 'lesson')));
+  put('/slides/lessons/:id', (req, db, u) => slides.saveLesson(db, u, num(req.params.id, 'lesson'), req.body ?? {}));
+  del('/slides/lessons/:id', (req, db, u) => slides.deleteLesson(db, u, num(req.params.id, 'lesson')));
+  get('/slides/lessons/:id/pptx', async (req, db, u, res) => sendFile(res, await slides.lessonDeck(db, u, num(req.params.id, 'lesson'))));
+  const adminOnly = (u: User) => { if (u.role !== 'admin') throw new AppError(403, 'Only an administrator can do this.'); };
+  get('/admin/ai-key', (_req, db, u) => { adminOnly(u); return slides.keyStatus(db); });
+  put('/admin/ai-key', (req, db, u) => slides.setApiKey(db, u, String(req.body?.key ?? '')));
+  del('/admin/ai-key', (_req, db, u) => slides.setApiKey(db, u, null));
 
   put('/classes/:id/meetings', (req, db, u) => {
     const c = ownClass(db, u, num(req.params.id, 'class'));

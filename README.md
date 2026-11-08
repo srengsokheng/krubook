@@ -261,6 +261,29 @@ other: Word, PDF, Excel, PowerPoint, images, code or zip, up to 25 MB each), so 
 start from the last one. Files are stored in the database, so backups include them (base64 in the
 JSON backup), and only the class's teacher can see them.
 
+## Lesson slides from a book
+
+**Lesson slides** writes a new lesson deck from a range of book pages in the format of a sample
+deck the teacher already uses. Upload a finished lesson (.pptx) as the sample and the course book
+(.pdf), choose the PDF pages, lesson number and (optionally) title and next lesson, and press
+**Write lesson**. The pages are sent to Claude (`claude-opus-5-5`, as a PDF so Khmer text is read
+from the page images) together with a list of the sample's slides and their text boxes; Claude
+answers with structured JSON naming, for each new slide, which sample slide it copies and the new
+text of each box. Writing runs in the background (a minute or two) and the page checks on it.
+
+Building the .pptx (`server/services/slides/pptx.ts`) copies the chosen sample slides with their
+background, fonts, pictures and positions and replaces only the words. A box left empty is removed
+along with the text-less shapes beside it (a bullet dot, a table row's background), so a five-bullet
+layout can carry three bullets. Page numbers are renumbered. The text can be edited box by box
+before downloading.
+
+The Claude API key comes from `ANTHROPIC_API_KEY` in `/etc/krubook/env`, or an administrator saves
+it under **Accounts → Claude API key** (stored in the database, never in backups, only its last four
+characters are shown). Each lesson costs roughly $0.30–$1. The feature can be switched off per
+account like the others. Refused requests fall back to another model on the server
+(`fallbacks: "default"`). Without a key, uploads work and writing explains what is missing;
+`KRUBOOK_SLIDES_WRITER=sample-copy` (used by the browser tests) "writes" by copying the sample.
+
 ## Accounts (several teachers)
 
 Every teacher has their own account, and everything in it (courses, terms, classes, students,

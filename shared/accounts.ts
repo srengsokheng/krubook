@@ -8,6 +8,7 @@ export const FEATURES = {
   import: { label: 'Update from Excel and spreadsheet imports', paths: [/^\/workbook\//, /^\/import\//, /^\/classes\/\d+\/import\//, /^\/students\/id-(match|apply)$/] },
   exports: { label: 'Excel exports', paths: [/^\/export\//] },
   reminders: { label: 'Telegram reminders', paths: [/^\/notifications\//] },
+  slides: { label: 'Lesson slides from a book (uses the Claude API)', paths: [/^\/slides(\/|$)/] },
 } as const;
 export type Feature = keyof typeof FEATURES;
 export const FEATURE_KEYS = Object.keys(FEATURES) as Feature[];

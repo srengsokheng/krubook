@@ -223,6 +223,26 @@ test.describe('signed in', () => {
     expect(dl.suggestedFilename()).toBe('Midterm 2026.docx');
   });
 
+  test('lesson slides: upload a sample deck and a book, write a lesson, edit it, download PowerPoint', async ({ page }) => {
+    await page.goto('/slides');
+    await page.getByLabel('Sample deck or book to upload').setInputFiles(['e2e-results/sample.pptx', 'e2e-results/book.pdf']); // written by e2e/server.ts
+    await expect(page.getByText('sample.pptx ·')).toBeVisible();
+    await expect(page.getByText('book.pdf ·')).toBeVisible();
+    await page.locator('#sl-from').fill('2');
+    await page.locator('#sl-to').fill('4');
+    await page.locator('#sl-no').fill('3');
+    await page.locator('#sl-title').fill('Control Statements');
+    await page.getByRole('button', { name: 'Write lesson' }).click();
+    await expect(page.getByText('3 slides', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await page.getByRole('button', { name: 'Check and edit' }).click();
+    const second = page.getByRole('region', { name: 'Slide 2' });
+    await second.locator('textarea').first().fill('If statements');
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(page.getByText('Saved')).toBeVisible();
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download PowerPoint' }).click()]);
+    expect(dl.suggestedFilename()).toBe('Control Statements.pptx');
+  });
+
   test('theme: Light and Dark override the device, Auto follows it, and the choice survives a reload', async ({ page }) => {
     await page.goto('/');
     const themes = page.getByRole('group', { name: 'Theme' });

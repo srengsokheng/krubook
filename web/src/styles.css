@@ -218,6 +218,7 @@ textarea { min-height: 72px; resize: vertical; }
 input[type='checkbox'], input[type='radio'] { width: auto; min-height: 0; accent-color: var(--accent); }
 input[type='color'] { padding: 2px; height: 34px; width: 52px; }
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
+.split-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
 .check { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--ink); }
 .search { position: relative; min-width: 220px; flex: 1; max-width: 360px; }

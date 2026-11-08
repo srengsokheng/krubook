@@ -30,6 +30,7 @@ const paths: Record<string, string> = {
   clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2',
   trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13',
   edit: 'M4 20h4L19 9l-4-4L4 16zM14 6l4 4',
+  slides: 'M3 4h18v12H3zM12 16v4M8 20h8M7 8h6M7 12h10',
 };
 
 export function Icon({ name, title }: { name: keyof typeof paths | string; title?: string }) {
