@@ -65,7 +65,7 @@ export function Admin({ me }: { me: Me }) {
         {!teachers.length && <Empty title="No teacher accounts yet">Add an account for each teacher who uses KruBook. They get a temporary password and choose their own at first sign-in.</Empty>}
       </div>
       <p className="faint xs">After the access-until date a teacher can still sign in, view and export, but cannot change anything until you extend it. Administrators have no limit.</p>
-      <ClaudeKey />
+      <AiSettings />
 
       {edit && <AccountForm a={edit} features={data.features} isSelf={edit.id === me.id} onClose={() => setEdit(null)} onSaved={(r) => { reload(); if (r?.temporaryPassword) setSecret({ email: r.account.email, password: r.temporaryPassword, isNew: true }); }} />}
       {secret && <TemporaryPassword {...secret} onClose={() => setSecret(null)} />}
@@ -83,24 +83,56 @@ function extend(from: string | null, months: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** The Claude API key used to write lesson slides; only its last four characters are ever shown. */
-function ClaudeKey() {
-  const { data, reload } = useApi<{ ready: boolean; source: 'env' | 'admin' | 'demo' | null; ending: string | null }>('/admin/ai-key');
+type AiProvider = { id: 'anthropic' | 'gemini'; label: string; keyHint: string; env: string; models: { id: string; label: string; note: string }[]; defaultModel: string; model: string; key: { source: 'env' | 'admin' | null; ending: string | null } };
+type AiData = { provider: AiProvider['id']; model: string; providers: AiProvider[] };
+
+/** Which AI writes lesson slides, its model and key. Keys are never shown back, only their last four characters. */
+function AiSettings() {
+  const { data, setData } = useApi<AiData>('/admin/ai');
+  const [pick, setPick] = useState<AiProvider['id'] | null>(null);
+  const [model, setModel] = useState<string | null>(null);
   const [key, setKey] = useState('');
   const { busy, run } = useAction();
   if (!data) return null;
+  const id = pick ?? data.provider;
+  const p = data.providers.find((x) => x.id === id)!;
+  const current = data.providers.find((x) => x.id === data.provider)!;
+  const m = model ?? p.model;
+  const inUse = data.provider === id && data.model === m;
+  const save = (body: object, done: string) => run(() => api<AiData>('/admin/ai', { method: 'PUT', body: { provider: id, ...body } }), done).then((r) => {
+    if (r) { setData(r); setKey(''); setModel(null); }
+  });
   return (
     <section className="panel" style={{ marginTop: 24 }}>
-      <div className="panel-head"><h2>Claude API key</h2>{data.source === 'env' || data.source === 'admin' ? <Pill tone="ok">set · ends in {data.ending}</Pill> : <Pill tone="warn">not set</Pill>}</div>
+      <div className="panel-head"><h2>AI for lesson slides</h2><Pill tone={current.key.source ? 'ok' : 'warn'}>{current.label} · {data.model}{current.key.source ? '' : ' · no key'}</Pill></div>
       <div className="panel-body stack">
-        <p className="small" style={{ margin: 0 }}>Used by <b>Lesson slides</b> to write lessons from a book. Create a key at console.anthropic.com (API keys) and add credit there; each lesson costs roughly $0.30–$1. Every account with Lesson slides switched on uses this key.</p>
-        {data.source === 'env' ? <p className="faint small" style={{ margin: 0 }}>The key comes from the server settings (ANTHROPIC_API_KEY) and is changed there.</p> : (
-          <div className="row">
-            <input id="ai-key" type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} placeholder={data.ending ? 'Paste a new key to replace it' : 'sk-ant-…'} style={{ flex: 1, minWidth: 220 }} />
-            <button className="btn primary" disabled={busy || !key.trim()} onClick={() => run(() => api('/admin/ai-key', { method: 'PUT', body: { key } }), 'Claude API key saved').then((r) => { if (r) { setKey(''); reload(); } })}>Save key</button>
-            {data.source === 'admin' && <button className="btn danger" disabled={busy} onClick={() => run(() => api('/admin/ai-key', { method: 'DELETE' }), 'Claude API key removed').then(reload)}>Remove</button>}
-          </div>
-        )}
+        <p className="small" style={{ margin: 0 }}><b>Lesson slides</b> sends the chosen book pages to this AI. You pay the AI company directly for what you use; every account with Lesson slides switched on uses this key.</p>
+        <div className="form-grid">
+          <Field label="AI service">
+            <select id="ai-provider" value={id} onChange={(e) => { setPick(e.target.value as AiProvider['id']); setModel(null); setKey(''); }}>
+              {data.providers.map((x) => <option key={x.id} value={x.id}>{x.label}{x.key.source ? '' : ' (no key yet)'}</option>)}
+            </select>
+          </Field>
+          <Field label="Model" hint={[p.models.find((x) => x.id === m)?.note, id === 'gemini' ? 'If Google renames the model, type the new name here.' : ''].filter(Boolean).join(' ')}>
+            {id === 'gemini'
+              ? <input id="ai-model" value={m} onChange={(e) => setModel(e.target.value)} />
+              : <select id="ai-model" value={m} onChange={(e) => setModel(e.target.value)}>{p.models.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select>}
+          </Field>
+        </div>
+        <div className="row">
+          <button className="btn primary" disabled={busy || inUse || !m.trim()} onClick={() => void save({ model: m.trim() }, `Lesson slides now use ${p.label}`)}>{inUse ? 'In use' : 'Use this'}</button>
+          {!p.key.source && <span className="faint xs">Add its API key below too.</span>}
+        </div>
+        <div className="stack" style={{ gap: 6 }}>
+          <span className="small"><b>{p.label} API key</b> {p.key.source ? <Pill tone="ok">set · ends in {p.key.ending}</Pill> : <Pill tone="warn">not set</Pill>}</span>
+          {p.key.source === 'env' ? <span className="faint small">This key comes from the server settings ({p.env}) and is changed there.</span> : (
+            <div className="row">
+              <input id="ai-key" type="password" autoComplete="off" aria-label={`${p.label} API key`} value={key} onChange={(e) => setKey(e.target.value)} placeholder={p.key.ending ? 'Paste a new key to replace it' : `Get one at ${p.keyHint}`} style={{ flex: 1, minWidth: 220 }} />
+              <button className="btn" disabled={busy || !key.trim()} onClick={() => void save({ key, use: data.provider === id }, 'API key saved')}>Save key</button>
+              {p.key.source === 'admin' && <button className="btn danger" disabled={busy} onClick={() => void save({ key: null, use: data.provider === id }, 'API key removed')}>Remove</button>}
+            </div>
+          )}
+        </div>
       </div>
     </section>
   );

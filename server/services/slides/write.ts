@@ -18,7 +18,6 @@ export interface LessonAsk {
 export interface Written { slides: DeckSlide[]; usage: { input: number; output: number; model: string } }
 export type Writer = (input: { pdf: Buffer; sample: SampleInfo; ask: LessonAsk; signal?: AbortSignal }) => Promise<Written>;
 
-export const MODEL = 'claude-opus-5-5';
 export const MAX_PAGES = 60;
 
 /** The PDF's page count, or a clear error when it cannot be read. */
@@ -125,16 +124,30 @@ export function askText(ask: LessonAsk, sample: SampleInfo): string {
   ].filter(Boolean).join('\n');
 }
 
-/** The real writer: one call to Claude with the book pages and the sample deck. */
-export function claudeWriter(apiKey: string): Writer {
+/** Parses the model's JSON answer into slides the sample deck can build. */
+function readAnswer(text: string, sample: SampleInfo, who: string): DeckSlide[] {
+  let parsed: { slides: DeckSlide[] };
+  try {
+    parsed = JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, ''));
+  } catch {
+    throw new AppError(502, `${who} sent an answer we could not read. Try again.`);
+  }
+  const slides = tidy(sample, parsed?.slides);
+  if (!slides.length) throw new AppError(502, `${who} did not write any slides. Try again.`);
+  return slides;
+}
+
+/** Claude: one call with the book pages and the sample deck. */
+export function claudeWriter(apiKey: string, model: string): Writer {
   const client = new Anthropic({ apiKey, maxRetries: 2, timeout: 15 * 60 * 1000 });
   return async ({ pdf, sample, ask, signal }) => {
     // Streamed because the answer is long; refusals fall back to another model on the server.
+    // Server-side refusal fallback is offered for Opus and Sonnet, not Haiku.
+    const fallback = /haiku/.test(model) ? {} : { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const };
     const stream = client.beta.messages.stream({
-      model: MODEL,
+      model,
       max_tokens: 64000,
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
+      ...fallback,
       thinking: { type: 'adaptive' },
       output_config: { effort: 'high', format: { type: 'json_schema', schema: SCHEMA as any } },
       system: SYSTEM,
@@ -150,15 +163,44 @@ export function claudeWriter(apiKey: string): Writer {
     if (msg.stop_reason === 'refusal') throw new AppError(422, 'Claude declined to write slides from these pages. Try a different page range.');
     if (msg.stop_reason === 'max_tokens') throw new AppError(422, 'The lesson was too long to finish in one go. Choose fewer pages and try again.');
     const text = msg.content.map((b) => (b.type === 'text' ? b.text : '')).join('');
-    let parsed: { slides: DeckSlide[] };
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      throw new AppError(502, 'Claude sent an answer we could not read. Try again.');
+    return { slides: readAnswer(text, sample, 'Claude'), usage: { input: msg.usage.input_tokens, output: msg.usage.output_tokens, model } };
+  };
+}
+
+/**
+ * Google Gemini over its REST API: one generateContent call with the book pages inline. Gemini
+ * reads the PDF pages too, so Khmer comes through. `fetchFn` is replaceable for tests.
+ */
+export function geminiWriter(apiKey: string, model: string, fetchFn: typeof fetch = fetch): Writer {
+  return async ({ pdf, sample, ask, signal }) => {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+    const body = (withSchema: boolean) => JSON.stringify({
+      systemInstruction: { parts: [{ text: SYSTEM }] },
+      contents: [{ role: 'user', parts: [{ inlineData: { mimeType: 'application/pdf', data: pdf.toString('base64') } }, { text: askText(ask, sample) + `\n\nAnswer with JSON only, in this shape: {"slides":[{"sample":3,"slots":[{"slot":1,"lines":["..."]}]}]}` }] }],
+      generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 65536, ...(withSchema ? { responseJsonSchema: SCHEMA } : {}) },
+    });
+    const call = (withSchema: boolean) => fetchFn(url, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey }, body: body(withSchema),
+      signal: signal ?? AbortSignal.timeout(15 * 60 * 1000),
+    });
+    let res = await call(true);
+    let json: any = await res.json().catch(() => null);
+    // Older Gemini models do not take a JSON schema; ask again with JSON mode alone.
+    if (res.status === 400 && /responseJsonSchema|response_json_schema/i.test(JSON.stringify(json))) {
+      res = await call(false);
+      json = await res.json().catch(() => null);
     }
-    const slides = tidy(sample, parsed.slides);
-    if (!slides.length) throw new AppError(502, 'Claude did not write any slides. Try again.');
-    return { slides, usage: { input: msg.usage.input_tokens, output: msg.usage.output_tokens, model: MODEL } };
+    if (!res.ok) {
+      const message = json?.error?.message ?? `HTTP ${res.status}`;
+      throw Object.assign(new Error(`Gemini: ${message}`), { status: res.status, message });
+    }
+    const cand = json?.candidates?.[0];
+    if (!cand) throw new AppError(422, 'Gemini declined to write slides from these pages (blocked by its safety filter). Try a different page range.');
+    if (cand.finishReason === 'MAX_TOKENS') throw new AppError(422, 'The lesson was too long to finish in one go. Choose fewer pages and try again.');
+    if (cand.finishReason && !['STOP', 'FINISH_REASON_UNSPECIFIED'].includes(cand.finishReason)) throw new AppError(422, `Gemini stopped early (${cand.finishReason}). Try a different page range.`);
+    const text = (cand.content?.parts ?? []).filter((p: any) => !p.thought).map((p: any) => p.text ?? '').join('');
+    const u = json.usageMetadata ?? {};
+    return { slides: readAnswer(text, sample, 'Gemini'), usage: { input: u.promptTokenCount ?? 0, output: (u.candidatesTokenCount ?? 0) + (u.thoughtsTokenCount ?? 0), model } };
   };
 }
 

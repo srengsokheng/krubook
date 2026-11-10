@@ -247,6 +247,18 @@ test.describe('signed in', () => {
     expect(dl.suggestedFilename()).toBe('Control Statements.pptx');
   });
 
+  test('AI for lesson slides: the administrator switches to Gemini and back to Claude Haiku', async ({ page }) => {
+    await page.goto('/admin');
+    await page.locator('#ai-provider').selectOption('gemini');
+    await expect(page.locator('#ai-model')).toHaveValue('gemini-3.6-flash');
+    await page.getByRole('button', { name: 'Use this' }).click();
+    await expect.poll(async () => (await (await page.request.get('/api/slides/status')).json()).provider).toBe('gemini');
+    await page.locator('#ai-provider').selectOption('anthropic');
+    await expect(page.locator('#ai-model')).toHaveValue('claude-haiku-5-5');
+    await page.getByRole('button', { name: 'Use this' }).click();
+    await expect.poll(async () => (await (await page.request.get('/api/slides/status')).json())).toMatchObject({ provider: 'anthropic', model: 'claude-haiku-5-5' });
+  });
+
   test('theme: Light and Dark override the device, Auto follows it, and the choice survives a reload', async ({ page }) => {
     await page.goto('/');
     const themes = page.getByRole('group', { name: 'Theme' });

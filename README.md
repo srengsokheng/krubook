@@ -266,8 +266,8 @@ JSON backup), and only the class's teacher can see them.
 **Lesson slides** writes a new lesson deck from a range of book pages in the format of a sample
 deck the teacher already uses. Upload a finished lesson (.pptx) as the sample and the course book
 (.pdf), choose the PDF pages, lesson number and (optionally) title and next lesson, and press
-**Write lesson**. The pages are sent to Claude (`claude-opus-5-5`, as a PDF so Khmer text is read
-from the page images) together with a list of the sample's slides and their text boxes; Claude
+**Write lesson**. The pages are sent to the AI an administrator chose (as a PDF, so Khmer text is
+read from the page images) together with a list of the sample's slides and their text boxes; it
 answers with structured JSON naming, for each new slide, which sample slide it copies and the new
 text of each box. Writing runs in the background (a minute or two) and the page checks on it.
 
@@ -277,10 +277,13 @@ along with the text-less shapes beside it (a bullet dot, a table row's backgroun
 layout can carry three bullets. Page numbers are renumbered. The text can be edited box by box
 before downloading.
 
-The Claude API key comes from `ANTHROPIC_API_KEY` in `/etc/krubook/env`, or an administrator saves
-it under **Accounts → Claude API key** (stored in the database, never in backups, only its last four
-characters are shown). Each lesson costs roughly $0.30–$1. The feature can be switched off per
-account like the others. Refused requests fall back to another model on the server
+**Accounts → AI for lesson slides** chooses the service and model (`server/services/slides/ai.ts`):
+Claude (Haiku 5.5 by default, about $0.02–$0.05 a lesson; Sonnet 5.5 or Opus 5.5 for better
+writing) or Google Gemini (`gemini-3.6-flash` by default, called over its REST API; the model name
+can be typed in). Each service has its own key, from `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` in
+`/etc/krubook/env` or saved there by an administrator (in `app_secrets`, never in backups, only the
+last four characters shown). The feature can be switched off per account like the others. With
+Claude Opus or Sonnet, refused requests fall back to another model on the server
 (`fallbacks: "default"`). Without a key, uploads work and writing explains what is missing;
 `KRUBOOK_SLIDES_WRITER=sample-copy` (used by the browser tests) "writes" by copying the sample.
 

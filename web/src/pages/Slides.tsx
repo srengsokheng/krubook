@@ -5,7 +5,7 @@ import type { Me } from '../App.tsx';
 
 // Lesson slides from a book: keep a sample deck (the look and slide types of a course) and the
 // course book, choose the book pages for a lesson, and KruBook writes the lesson in the sample's
-// format with Claude. The text can be checked and edited here before downloading PowerPoint.
+// format with the AI an administrator chose (Claude or Gemini). The text can be checked and edited here before downloading PowerPoint.
 
 type SlideFile = { id: number; kind: 'sample' | 'book'; title: string; filename: string; size: number; pages?: number | null; slideCount?: number | null; createdAt: string };
 type Slot = { slot: number; lines: string[]; chars: number; page?: boolean };
@@ -16,11 +16,24 @@ type Lesson = {
   request: { lessonNo: string; fromPage: number; toPage: number; title?: string; nextTitle?: string };
   usage: { input: number; output: number; model: string } | null; slideCount: number; createdAt: string; slides?: DeckSlide[];
 };
-type Status = { ready: boolean; source: 'env' | 'admin' | 'demo' | null };
+type Status = { ready: boolean; demo: boolean; provider: string; providerLabel: string; model: string };
 
 const size = (n: number) => (n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
-// Opus 5.5 list prices: $4 per million input tokens, $20 per million output tokens.
-const cost = (u: Lesson['usage']) => (u && u.input ? `about $${((u.input * 4 + u.output * 20) / 1e6).toFixed(2)}` : null);
+// Claude list prices in US$ per million tokens (input, output). Gemini's show on the Google bill.
+const PRICES: Record<string, [number, number]> = { 'claude-opus-5-5': [4, 20], 'claude-sonnet-5-5': [2, 10], 'claude-haiku-5-5': [0.1, 0.5] };
+const cost = (u: Lesson['usage']) => {
+  if (!u || !u.input) return null;
+  const p = PRICES[u.model];
+  return p ? `${u.model}, about $${Math.max(0.01, (u.input * p[0] + u.output * p[1]) / 1e6).toFixed(2)}` : `${u.model}, ${Math.round((u.input + u.output) / 1000)}k tokens`;
+};
+/** Rough cost of a lesson from `pages` book pages with `model`; empty when the price is not known. */
+const estimate = (model: string, pages: number) => {
+  const p = PRICES[model];
+  if (!p) return '';
+  const lo = ((20_000 + pages * 1500) * p[0] + 10_000 * p[1]) / 1e6;
+  const hi = ((25_000 + pages * 3000) * p[0] + 30_000 * p[1]) / 1e6;
+  return ` Roughly $${Math.max(0.01, lo).toFixed(2)}–$${Math.max(0.01, hi).toFixed(2)} with ${model}.`;
+};
 
 export function Slides({ me }: { me: Me }) {
   const files = useApi<SlideFile[]>('/slides/files');
@@ -52,12 +65,12 @@ export function Slides({ me }: { me: Me }) {
         </div>
       </div>
       {status.data && !status.data.ready && (
-        <Notice tone="warn">Writing lessons needs a Claude API key. {me.role === 'admin' ? 'Add it on the Accounts page (“Claude API key” at the bottom).' : 'Ask the administrator to add one.'} You can already upload your sample decks and books.</Notice>
+        <Notice tone="warn">Writing lessons needs an API key for {status.data.providerLabel}. {me.role === 'admin' ? 'Add it on the Accounts page (“AI for lesson slides” at the bottom).' : 'Ask the administrator to add one.'} You can already upload your sample decks and books.</Notice>
       )}
-      {status.data?.source === 'demo' && <Notice>Demo mode: lessons are copies of the sample deck, not written from the book.</Notice>}
+      {status.data?.demo && <Notice>Demo mode: lessons are copies of the sample deck, not written from the book.</Notice>}
       <div className="stack">
         <Library samples={samples} books={books} reload={files.reload} />
-        <NewLesson samples={samples} books={books} ready={!!status.data?.ready} onStarted={() => void lessons.reload()} />
+        <NewLesson samples={samples} books={books} ready={!!status.data?.ready} model={status.data?.model ?? ''} onStarted={() => void lessons.reload()} />
         <Lessons lessons={lessons.data} reload={lessons.reload} onOpen={setOpen} />
       </div>
     </div>
@@ -113,7 +126,7 @@ function Library({ samples, books, reload }: { samples: SlideFile[]; books: Slid
   );
 }
 
-function NewLesson({ samples, books, ready, onStarted }: { samples: SlideFile[]; books: SlideFile[]; ready: boolean; onStarted: () => void }) {
+function NewLesson({ samples, books, ready, model, onStarted }: { samples: SlideFile[]; books: SlideFile[]; ready: boolean; model: string; onStarted: () => void }) {
   const [f, setF] = useState({ sampleId: '', bookId: '', fromPage: '', toPage: '', lessonNo: '', title: '', nextTitle: '', notes: '' });
   const { busy, run } = useAction();
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
@@ -146,7 +159,7 @@ function NewLesson({ samples, books, ready, onStarted }: { samples: SlideFile[];
             <button className="btn primary" disabled={busy || !ready || !f.fromPage || !f.toPage || !f.lessonNo.trim()} onClick={() => void submit()}><Icon name="edit" />Write lesson</button>
             <span className="faint xs">
               Use the page numbers your PDF viewer shows, which can differ from the numbers printed in the book.
-              {pages > 0 && ` ${pages} page${pages === 1 ? '' : 's'}: roughly $${(0.25 + pages * 0.03).toFixed(2)}–$${(0.6 + pages * 0.05).toFixed(2)} on the Claude account.`}
+              {pages > 0 && ` ${pages} page${pages === 1 ? '' : 's'}.${estimate(model, pages)}`}
             </span>
           </div>
         </>)}

@@ -10,7 +10,7 @@ import type { DB } from '../server/db.ts';
 import { createApp, createHolder } from '../server/app.ts';
 import { addAccount, createUser } from '../server/auth.ts';
 import { buildDeck, fillSlide, readSample } from '../server/services/slides/pptx.ts';
-import { askText, describeSample, pdfPages, tidy, type Writer } from '../server/services/slides/write.ts';
+import { askText, describeSample, geminiWriter, pdfPages, tidy, type Writer } from '../server/services/slides/write.ts';
 import { failInterrupted, setWriter, settled } from '../server/services/slides/lessons.ts';
 import { exportBackup, loadBackup } from '../server/services/backup.ts';
 import { bookPdf, CODE, CONTENT, sampleDeck } from './fixtures/slides.ts';
@@ -99,6 +99,27 @@ describe('the writer', () => {
     const s = await readSample(await sampleDeck());
     expect(tidy(s, [{ sample: 2, slots: [{ slot: 1, lines: ['x'] }, { slot: 7, lines: ['99'] }, { slot: 40, lines: ['y'] }] }, { sample: 8, slots: [] }]))
       .toEqual([{ sample: 2, slots: [{ slot: 1, lines: ['x'] }] }]);
+  });
+
+  it('asks Gemini with the PDF inline and reads its JSON answer', async () => {
+    const s = await readSample(await sampleDeck());
+    const sent: any[] = [];
+    const answer = { slides: [{ sample: 2, slots: [{ slot: 1, lines: ['If'] }] }] };
+    const fake = (async (url: string, init: any) => {
+      sent.push({ url, headers: init.headers, body: JSON.parse(init.body) });
+      return new Response(JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(answer) }] } }], usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 50 } }));
+    }) as typeof fetch;
+    const out = await geminiWriter('key-123', 'gemini-3.6-flash', fake)({ pdf: Buffer.from('%PDF'), sample: s, ask: { lessonNo: '3', fromPage: 1, toPage: 2 } });
+    expect(out).toEqual({ slides: answer.slides, usage: { input: 100, output: 50, model: 'gemini-3.6-flash' } });
+    expect(sent[0].url).toContain('/models/gemini-3.6-flash:generateContent');
+    expect(sent[0].headers['x-goog-api-key']).toBe('key-123');
+    expect(sent[0].body.contents[0].parts[0].inlineData).toEqual({ mimeType: 'application/pdf', data: Buffer.from('%PDF').toString('base64') });
+    expect(sent[0].body.generationConfig.responseMimeType).toBe('application/json');
+
+    const refused = (async () => new Response(JSON.stringify({ error: { message: 'API key not valid' } }), { status: 400 })) as typeof fetch;
+    await expect(geminiWriter('k', 'm', refused)({ pdf: Buffer.from('x'), sample: s, ask: { lessonNo: '3', fromPage: 1, toPage: 1 } })).rejects.toMatchObject({ status: 400 });
+    const blocked = (async () => new Response(JSON.stringify({ promptFeedback: { blockReason: 'SAFETY' } }))) as typeof fetch;
+    await expect(geminiWriter('k', 'm', blocked)({ pdf: Buffer.from('x'), sample: s, ask: { lessonNo: '3', fromPage: 1, toPage: 1 } })).rejects.toThrow(/safety/);
   });
 
   it('tells Claude the pages, lesson and next lesson', async () => {
@@ -197,7 +218,7 @@ describe('lesson slides API', () => {
     setWriter(async () => { throw Object.assign(new Error('nope'), { status: 401 }); });
     const l = await (await call(cookie, 'POST', '/slides/lessons', { sampleId: sample.id, bookId: book.id, lessonNo: '1', fromPage: 1, toPage: 3 })).json();
     await settled();
-    expect(await (await call(cookie, 'GET', `/slides/lessons/${l.id}`)).json()).toMatchObject({ status: 'failed', error: expect.stringMatching(/API key was refused/) });
+    expect(await (await call(cookie, 'GET', `/slides/lessons/${l.id}`)).json()).toMatchObject({ status: 'failed', error: expect.stringMatching(/refused the API key/) });
 
     setWriter(() => new Promise(() => {}));
     const stuck = await (await call(cookie, 'POST', '/slides/lessons', { sampleId: sample.id, bookId: book.id, lessonNo: '2', fromPage: 1, toPage: 1 })).json();
@@ -207,15 +228,30 @@ describe('lesson slides API', () => {
     expect(await (await call(cookie, 'GET', `/slides/lessons/${stuck.id}`)).json()).toMatchObject({ status: 'failed', error: expect.stringMatching(/restarted/) });
   });
 
-  it('lets only an administrator set the Claude API key, and never shows it back', async () => {
-    expect((await call(other, 'PUT', '/admin/ai-key', { key: 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz' })).status).toBe(403);
-    expect((await call(cookie, 'PUT', '/admin/ai-key', { key: 'hello' })).status).toBe(422);
-    const set = await (await call(cookie, 'PUT', '/admin/ai-key', { key: ' sk-ant-api03-abcdefghijklmnopqrstuvwxyz ' })).json();
-    expect(set).toEqual({ ready: true, source: 'admin', ending: 'wxyz' });
-    expect(await (await call(other, 'GET', '/slides/status')).json()).toEqual({ ready: true, source: 'admin', ending: 'wxyz' });
+  it('lets only an administrator choose the AI and its key, and never shows a key back', async () => {
+    const settings = await (await call(cookie, 'GET', '/admin/ai')).json();
+    expect(settings).toMatchObject({ provider: 'anthropic', model: 'claude-haiku-5-5' });
+    expect((await call(other, 'GET', '/admin/ai')).status).toBe(403);
+    expect((await call(other, 'PUT', '/admin/ai', { provider: 'anthropic', key: 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz' })).status).toBe(403);
+    expect((await call(cookie, 'PUT', '/admin/ai', { provider: 'anthropic', key: 'hello' })).status).toBe(422);
+    expect((await call(cookie, 'PUT', '/admin/ai', { provider: 'openai' })).status).toBe(422);
+    expect((await call(cookie, 'PUT', '/admin/ai', { provider: 'gemini', model: 'bad model!' })).status).toBe(422);
+
+    const set = await (await call(cookie, 'PUT', '/admin/ai', { provider: 'anthropic', key: ' sk-ant-api03-abcdefghijklmnopqrstuvwxyz ' })).json();
+    expect(set.providers.find((p: any) => p.id === 'anthropic').key).toEqual({ source: 'admin', ending: 'wxyz' });
+    expect(await (await call(other, 'GET', '/slides/status')).json()).toMatchObject({ ready: true, provider: 'anthropic', model: 'claude-haiku-5-5' });
+
+    // Switch to Gemini: not ready until it has its own key.
+    await call(cookie, 'PUT', '/admin/ai', { provider: 'gemini', model: 'gemini-3.6-flash' });
+    expect(await (await call(other, 'GET', '/slides/status')).json()).toMatchObject({ ready: false, provider: 'gemini', model: 'gemini-3.6-flash' });
+    await call(cookie, 'PUT', '/admin/ai', { provider: 'gemini', key: 'AIzaSyD-gemini-test-key-0123456789abcd' });
+    expect(await (await call(other, 'GET', '/slides/status')).json()).toMatchObject({ ready: true, provider: 'gemini' });
+
     expect(JSON.stringify(exportBackup(db))).not.toContain('abcdefghij');
-    expect(JSON.stringify(db.all('SELECT * FROM audit_log'))).not.toContain('abcdefghij');
-    expect(await (await call(cookie, 'DELETE', '/admin/ai-key')).json()).toMatchObject({ ready: false });
+    expect(JSON.stringify(exportBackup(db))).not.toContain('gemini-test-key');
+    expect(JSON.stringify(db.all('SELECT * FROM audit_log'))).not.toMatch(/abcdefghij|gemini-test-key/);
+    const removed = await (await call(cookie, 'PUT', '/admin/ai', { provider: 'gemini', key: null })).json();
+    expect(removed.providers.find((p: any) => p.id === 'gemini').key).toEqual({ source: null, ending: null });
   });
 
   it('can be switched off for an account', async () => {

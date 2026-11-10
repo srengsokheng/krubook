@@ -1,55 +1,14 @@
 import { AppError, DB, type Row } from '../../db.ts';
 import type { User } from '../../auth.ts';
 import { buildDeck, readSample, type DeckSlide, type SampleInfo } from './pptx.ts';
-import { claudeWriter, pdfPageCount, pdfPages, sampleCopyWriter, type LessonAsk, type Writer } from './write.ts';
+import { pdfPageCount, pdfPages, type LessonAsk } from './write.ts';
+import { writerFor } from './ai.ts';
+export { setWriter } from './ai.ts';
 
 // Lesson slides from a book: a teacher keeps sample decks (the look and slide types of a course)
 // and books (PDF), and asks for a lesson from a range of book pages. Writing takes a minute or
 // more, so it runs in the background: the lesson is saved as "working" and becomes "ready" (or
 // "failed" with the reason). The slide text can then be edited and downloaded as PowerPoint.
-
-const KEY_NAME = 'anthropic_api_key';
-
-/** The Claude API key: from the server environment, else the one an administrator saved. */
-export function apiKey(db: DB): { key: string | null; source: 'env' | 'admin' | null } {
-  if (process.env.ANTHROPIC_API_KEY) return { key: process.env.ANTHROPIC_API_KEY, source: 'env' };
-  const row = db.get('SELECT value FROM app_secrets WHERE name = ?', KEY_NAME);
-  return row ? { key: row.value, source: 'admin' } : { key: null, source: null };
-}
-
-export function setApiKey(db: DB, u: User, key: string | null) {
-  if (u.role !== 'admin') throw new AppError(403, 'Only an administrator can set the Claude API key.');
-  if (key === null) {
-    db.tx(() => { db.run('DELETE FROM app_secrets WHERE name = ?', KEY_NAME); db.audit(u.id, 'app_secret', 0, 'delete', { name: KEY_NAME }); });
-    return keyStatus(db);
-  }
-  const k = String(key).trim();
-  if (!/^sk-ant-[\w-]{20,}$/.test(k)) throw new AppError(422, 'That does not look like a Claude API key (it starts with sk-ant-).');
-  db.tx(() => {
-    db.run(`INSERT INTO app_secrets (name, value, updated_by) VALUES (?,?,?)
-            ON CONFLICT(name) DO UPDATE SET value = excluded.value, updated_by = excluded.updated_by, updated_at = datetime('now')`, KEY_NAME, k, u.id);
-    db.audit(u.id, 'app_secret', 0, 'update', undefined, { name: KEY_NAME, ending: k.slice(-4) });
-  });
-  return keyStatus(db);
-}
-
-export function keyStatus(db: DB) {
-  const { key, source } = apiKey(db);
-  const fake = process.env.KRUBOOK_SLIDES_WRITER === 'sample-copy';
-  return { ready: !!key || fake, source: fake && !key ? 'demo' : source, ending: key ? key.slice(-4) : null };
-}
-
-let writerOverride: Writer | null = null;
-/** Tests replace the writer so no real API call is made. */
-export function setWriter(w: Writer | null) { writerOverride = w; }
-
-function writerFor(db: DB): Writer {
-  if (writerOverride) return writerOverride;
-  const { key } = apiKey(db);
-  if (key) return claudeWriter(key);
-  if (process.env.KRUBOOK_SLIDES_WRITER === 'sample-copy') return sampleCopyWriter;
-  throw new AppError(409, 'Lesson writing is not set up yet: the administrator needs to add a Claude API key (Accounts page).', { code: 'NO_API_KEY' });
-}
 
 // ---- Sample decks and books -------------------------------------------------------------------
 
@@ -192,11 +151,12 @@ export const settled = () => Promise.all([...pending]);
 
 function friendly(e: any): string {
   const status = e?.status;
-  if (status === 401) return 'The Claude API key was refused. Ask the administrator to check it.';
-  if (status === 429) return 'Claude is busy or the API key has reached its limit. Try again in a few minutes.';
-  if (status === 400 && /credit|balance|billing/i.test(String(e?.message))) return 'The Claude account has run out of credit. Ask the administrator to top it up.';
+  if (status === 401 || status === 403 || (status === 400 && /api key/i.test(String(e?.message)))) return 'The AI service refused the API key. Ask the administrator to check it.';
+  if (status === 404) return 'The AI service does not know that model name. Ask the administrator to check it on the Accounts page.';
+  if (status === 429) return 'The AI service is busy or the API key has reached its limit. Try again in a few minutes.';
+  if (status === 400 && /credit|balance|billing/i.test(String(e?.message))) return 'The AI account has run out of credit. Ask the administrator to top it up.';
   if (status === 413 || /too large|too long|exceed/i.test(String(e?.message))) return 'Those pages are too large to send in one go. Choose fewer pages.';
-  if (status >= 500 || status === 529) return 'Claude is not available right now. Try again in a few minutes.';
+  if (status >= 500 || status === 529) return 'The AI service is not available right now. Try again in a few minutes.';
   return 'Writing the lesson failed. Try again.';
 }
 
