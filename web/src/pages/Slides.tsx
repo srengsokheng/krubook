@@ -7,7 +7,7 @@ import type { Me } from '../App.tsx';
 // course book, choose the book pages for a lesson, and KruBook writes the lesson in the sample's
 // format with the AI an administrator chose (Claude or Gemini). The text can be checked and edited here before downloading PowerPoint.
 
-type SlideFile = { id: number; kind: 'sample' | 'book'; title: string; filename: string; size: number; pages?: number | null; slideCount?: number | null; createdAt: string };
+type SlideFile = { id: number; kind: 'sample' | 'book'; title: string; filename: string; size: number; pages?: number | null; lessons?: { no: number; title: string; from: number; to: number }[]; slideCount?: number | null; createdAt: string };
 type Slot = { slot: number; lines: string[]; chars: number; page?: boolean };
 type SampleInfo = { slideCount: number; slides: { index: number; slots: Slot[] }[] };
 type DeckSlide = { sample: number; slots: { slot: number; lines: string[] }[] };
@@ -99,7 +99,7 @@ function Library({ samples, books, reload }: { samples: SlideFile[]; books: Slid
   const list = (items: SlideFile[], empty: string) => items.length ? (
     <ul className="ledger">{items.map((f) => (
       <li key={f.id}>
-        <span className="grow"><b>{f.title}</b><div className="faint xs">{f.filename} · {size(f.size)} · {f.kind === 'book' ? `${f.pages} pages` : `${f.slideCount} slides`}</div></span>
+        <span className="grow"><b>{f.title}</b><div className="faint xs">{f.filename} · {size(f.size)} · {f.kind === 'book' ? `${f.pages} pages${f.lessons?.length ? ` · ${f.lessons.length} lessons` : ''}` : `${f.slideCount} slides`}</div></span>
         <Menu items={[
           { label: 'Download', onSelect: () => run(() => download(`/slides/files/${f.id}/download`)) },
           { label: 'Rename…', onSelect: () => void rename(f) },
@@ -127,16 +127,28 @@ function Library({ samples, books, reload }: { samples: SlideFile[]; books: Slid
 }
 
 function NewLesson({ samples, books, ready, model, onStarted }: { samples: SlideFile[]; books: SlideFile[]; ready: boolean; model: string; onStarted: () => void }) {
-  const [f, setF] = useState({ sampleId: '', bookId: '', fromPage: '', toPage: '', lessonNo: '', title: '', nextTitle: '', notes: '' });
+  const empty = { fromPage: '', toPage: '', lessonNo: '', title: '', nextTitle: '', notes: '' };
+  const [f, setF] = useState({ sampleId: '', bookId: '', lesson: '', ...empty });
+  const [adjust, setAdjust] = useState(false);
   const { busy, run } = useAction();
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const sampleId = f.sampleId || String(samples[0]?.id ?? '');
   const bookId = f.bookId || String(books[0]?.id ?? '');
   const book = books.find((b) => String(b.id) === bookId);
+  const found = book?.lessons ?? [];
+  const picked = found.find((l) => String(l.no) === f.lesson);
+  const manual = !found.length || f.lesson === 'pages' || adjust;
   const pages = f.fromPage && f.toPage ? Number(f.toPage) - Number(f.fromPage) + 1 : 0;
+  // Choosing a lesson of the book fills in its pages, number, title and the next lesson.
+  const pick = (value: string) => {
+    const l = found.find((x) => String(x.no) === value);
+    const next = l && found[found.indexOf(l) + 1];
+    setAdjust(false);
+    setF({ ...f, ...empty, notes: f.notes, lesson: value, ...(l ? { fromPage: String(l.from), toPage: String(l.to), lessonNo: String(l.no), title: l.title, nextTitle: next?.title ?? '' } : {}) });
+  };
   const submit = async () => {
     const r = await run(() => api('/slides/lessons', { method: 'POST', body: { ...f, sampleId: Number(sampleId), bookId: Number(bookId), fromPage: Number(f.fromPage), toPage: Number(f.toPage) } }), 'Writing the lesson — this takes a minute or two');
-    if (r) { setF({ ...f, fromPage: '', toPage: '', lessonNo: '', title: '', nextTitle: '', notes: '' }); onStarted(); }
+    if (r) { setF({ ...f, ...empty, lesson: '' }); setAdjust(false); onStarted(); }
   };
   return (
     <section className="panel">
@@ -145,20 +157,40 @@ function NewLesson({ samples, books, ready, model, onStarted }: { samples: Slide
         {!samples.length || !books.length ? <p className="faint small" style={{ margin: 0 }}>Upload a sample deck and a book first.</p> : (<>
           <div className="form-grid">
             <Field label="Sample deck"><select id="sl-sample" value={sampleId} onChange={set('sampleId')}>{samples.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}</select></Field>
-            <Field label="Book"><select id="sl-book" value={bookId} onChange={set('bookId')}>{books.map((b) => <option key={b.id} value={b.id}>{b.title}</option>)}</select></Field>
-            <Field label="From page" hint={book ? `PDF page, 1–${book.pages}` : undefined}><input id="sl-from" type="number" min={1} max={book?.pages ?? undefined} value={f.fromPage} onChange={set('fromPage')} /></Field>
-            <Field label="To page"><input id="sl-to" type="number" min={1} max={book?.pages ?? undefined} value={f.toPage} onChange={set('toPage')} /></Field>
+            <Field label="Book"><select id="sl-book" value={bookId} onChange={(e) => { setF({ ...f, ...empty, bookId: e.target.value, lesson: '' }); setAdjust(false); }}>{books.map((b) => <option key={b.id} value={b.id}>{b.title}</option>)}</select></Field>
+            {found.length > 0 && (
+              <Field label="Lesson">
+                <select id="sl-lesson" value={f.lesson} onChange={(e) => pick(e.target.value)}>
+                  <option value="">Choose a lesson…</option>
+                  {found.map((l) => <option key={l.no} value={l.no}>Lesson {l.no}: {l.title}</option>)}
+                  <option value="pages">Other pages…</option>
+                </select>
+              </Field>
+            )}
           </div>
-          <div className="form-grid">
-            <Field label="Lesson number" hint="As it should appear, e.g. ៣ or 3."><input id="sl-no" value={f.lessonNo} onChange={set('lessonNo')} /></Field>
-            <Field label="Lesson title (optional)" hint="Taken from the book if left empty."><input id="sl-title" value={f.title} onChange={set('title')} placeholder="e.g. Control Statements" /></Field>
-            <Field label="Next lesson (optional)" hint="Named on the closing slide."><input id="sl-next" value={f.nextTitle} onChange={set('nextTitle')} placeholder="e.g. Loops" /></Field>
-          </div>
+          {picked && !adjust && (
+            <p className="small" style={{ margin: 0 }}>
+              Pages {picked.from}–{picked.to} of the PDF · lesson {f.lessonNo} “{f.title}”{f.nextTitle ? <> · next: “{f.nextTitle}”</> : null}{' '}
+              <button type="button" className="btn ghost sm" onClick={() => setAdjust(true)}>Change</button>
+            </p>
+          )}
+          {manual && (<>
+            {!found.length && <p className="faint xs" style={{ margin: 0 }}>No lesson headings were found in this book, so choose its pages yourself.</p>}
+            <div className="form-grid">
+              <Field label="From page" hint={book ? `PDF page, 1–${book.pages}` : undefined}><input id="sl-from" type="number" min={1} max={book?.pages ?? undefined} value={f.fromPage} onChange={set('fromPage')} /></Field>
+              <Field label="To page"><input id="sl-to" type="number" min={1} max={book?.pages ?? undefined} value={f.toPage} onChange={set('toPage')} /></Field>
+              <Field label="Lesson number" hint="As it should appear, e.g. ៣ or 3."><input id="sl-no" value={f.lessonNo} onChange={set('lessonNo')} /></Field>
+            </div>
+            <div className="form-grid">
+              <Field label="Lesson title (optional)" hint="Taken from the book if left empty."><input id="sl-title" value={f.title} onChange={set('title')} placeholder="e.g. Control Statements" /></Field>
+              <Field label="Next lesson (optional)" hint="Named on the closing slide."><input id="sl-next" value={f.nextTitle} onChange={set('nextTitle')} placeholder="e.g. Loops" /></Field>
+            </div>
+          </>)}
           <Field label="Anything else (optional)"><textarea id="sl-notes" rows={2} value={f.notes} onChange={set('notes')} placeholder="e.g. Add one more code example for switch; keep it to about 20 slides." /></Field>
           <div className="row">
             <button className="btn primary" disabled={busy || !ready || !f.fromPage || !f.toPage || !f.lessonNo.trim()} onClick={() => void submit()}><Icon name="edit" />Write lesson</button>
             <span className="faint xs">
-              Use the page numbers your PDF viewer shows, which can differ from the numbers printed in the book.
+              {manual ? 'Use the page numbers your PDF viewer shows, which can differ from the numbers printed in the book.' : ''}
               {pages > 0 && ` ${pages} page${pages === 1 ? '' : 's'}.${estimate(model, pages)}`}
             </span>
           </div>

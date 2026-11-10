@@ -232,9 +232,14 @@ test.describe('signed in', () => {
     await page.getByLabel('Sample deck or book to upload').setInputFiles(['e2e-results/sample.pptx', 'e2e-results/book.pdf']); // written by e2e/server.ts
     await expect(page.getByText('sample.pptx ·')).toBeVisible();
     await expect(page.getByText('book.pdf ·')).toBeVisible();
-    await page.locator('#sl-from').fill('2');
-    await page.locator('#sl-to').fill('4');
-    await page.locator('#sl-no').fill('3');
+    await expect(page.getByText('8 pages · 2 lessons')).toBeVisible();
+    // Choosing a lesson of the book fills in its pages, number, title and the next lesson.
+    await page.locator('#sl-lesson').selectOption({ label: 'Lesson 1: The Basics' });
+    await expect(page.getByText('Pages 2–4 of the PDF · lesson 1 “The Basics” · next: “Loops and More”')).toBeVisible();
+    await expect(page.locator('#sl-from')).toHaveCount(0);
+    // "Change" opens the details to adjust them.
+    await page.getByRole('button', { name: 'Change' }).click();
+    await expect(page.locator('#sl-from')).toHaveValue('2');
     await page.locator('#sl-title').fill('Control Statements');
     await page.getByRole('button', { name: 'Write lesson' }).click();
     await expect(page.getByText('3 slides', { exact: true })).toBeVisible({ timeout: 15_000 });

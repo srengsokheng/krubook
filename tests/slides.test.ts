@@ -11,7 +11,8 @@ import { createApp, createHolder } from '../server/app.ts';
 import { addAccount, createUser } from '../server/auth.ts';
 import { buildDeck, fillSlide, readSample } from '../server/services/slides/pptx.ts';
 import { askText, describeSample, geminiWriter, pdfPages, tidy, type Writer } from '../server/services/slides/write.ts';
-import { failInterrupted, setWriter, settled } from '../server/services/slides/lessons.ts';
+import { bookLessons, findLessons, pageHeading } from '../server/services/slides/book.ts';
+import { failInterrupted, indexBooks, setWriter, settled } from '../server/services/slides/lessons.ts';
 import { exportBackup, loadBackup } from '../server/services/backup.ts';
 import { bookPdf, CODE, CONTENT, sampleDeck } from './fixtures/slides.ts';
 
@@ -85,6 +86,41 @@ describe('reading and building decks', () => {
 
   it('rejects files that are not decks', async () => {
     await expect(readSample(Buffer.from('nope'))).rejects.toThrow(/not a PowerPoint/);
+  });
+});
+
+describe('finding the lessons in a book', () => {
+  // Page texts as pdf.js reads the SETEC C++ book (Khmer partly garbled, which does not matter).
+  const page = (n: number, title: string, num: number) => `Lesson ${n}: ${title} SETEC Institute ${num} េមេរៀនទី ${'០១២៣៤៥៦៧៨៩'[n]} : ${title} 1. Introduction`;
+  const book = [
+    'Table of Contents SETEC Institute Table of Contents េមេរៀនទី ១: The Foundation of C++ ........ 1 1. Introduction ........ 1 េមេរៀនទី ២: Variables ........ 5',
+    'Table of Contents SETEC Institute 6. The continue statement ........ 36 េមេរៀនទី ៥: Functions ........ 37',
+    page(1, 'The Foundation of C++ Programming Language', 1), page(1, 'The Foundation of C++ Programming Language', 2),
+    page(2, 'Variables, Data Types and Operators', 5), page(2, 'Variables, Data Types and Operators', 6), page(2, 'Variables, Data Types and Operators', 7),
+    page(3, 'Control Statements', 19),
+    'a page with no header, a figure only',
+    page(3, 'Control Statements', 21),
+  ];
+
+  it('reads a page heading in English or Khmer', () => {
+    expect(pageHeading(page(3, 'Control Statements', 19))).toEqual({ no: 3, title: 'Control Statements' });
+    expect(pageHeading('មេរៀនទី ៤: Control Loops 28 1. while() Loop')).toEqual({ no: 4, title: 'Control Loops' });
+    expect(pageHeading('Chapter 2 - Getting Started')).toEqual({ no: 2, title: 'Getting Started' });
+    expect(pageHeading('Some text that mentions nothing')).toBeNull();
+  });
+
+  it('gives each lesson its pages, skipping the contents', () => {
+    expect(findLessons(book)).toEqual([
+      { no: 1, title: 'The Foundation of C++ Programming Language', from: 3, to: 4 },
+      { no: 2, title: 'Variables, Data Types and Operators', from: 5, to: 7 },
+      { no: 3, title: 'Control Statements', from: 8, to: 10 },
+    ]);
+    expect(findLessons(['nothing here', 'or here'])).toEqual([]);
+  });
+
+  it('reads the lessons from a real PDF', async () => {
+    expect(await bookLessons(await bookPdf(9))).toEqual([{ no: 1, title: 'The Basics', from: 2, to: 4 }, { no: 2, title: 'Loops and More', from: 5, to: 9 }]);
+    expect(await bookLessons(Buffer.from('not a pdf'))).toEqual([]);
   });
 });
 
@@ -164,7 +200,7 @@ describe('lesson slides API', () => {
     const sample = await (await upload(cookie, 'CPP Lesson 2.pptx', await sampleDeck())).json();
     expect(sample).toMatchObject({ kind: 'sample', title: 'CPP Lesson 2', slideCount: 3 });
     const book = await (await upload(cookie, 'Book.pdf', await bookPdf(12))).json();
-    expect(book).toMatchObject({ kind: 'book', pages: 12 });
+    expect(book).toMatchObject({ kind: 'book', pages: 12, lessons: [{ no: 1, title: 'The Basics', from: 2, to: 6 }, { no: 2, title: 'Loops and More', from: 7, to: 12 }] });
     expect((await upload(cookie, 'notes.txt', Buffer.from('x'))).status).toBe(422);
     expect((await (await call(cookie, 'GET', `/slides/samples/${sample.id}`)).json()).slides).toHaveLength(3);
 
@@ -252,6 +288,14 @@ describe('lesson slides API', () => {
     expect(JSON.stringify(db.all('SELECT * FROM audit_log'))).not.toMatch(/abcdefghij|gemini-test-key/);
     const removed = await (await call(cookie, 'PUT', '/admin/ai', { provider: 'gemini', key: null })).json();
     expect(removed.providers.find((p: any) => p.id === 'gemini').key).toEqual({ source: null, ending: null });
+  });
+
+  it('finds the lessons of books uploaded before lesson lists existed', async () => {
+    const book = await (await upload(cookie, 'Old book.pdf', await bookPdf(6))).json();
+    db.run("UPDATE slide_files SET info = '{\"pages\":6}' WHERE id = ?", book.id);
+    expect((await (await call(cookie, 'GET', '/slides/files')).json())[0].lessons).toEqual([]);
+    await indexBooks(() => db);
+    expect((await (await call(cookie, 'GET', '/slides/files')).json())[0]).toMatchObject({ pages: 6, lessons: [{ no: 1, from: 2, to: 3 }, { no: 2, from: 4, to: 6 }] });
   });
 
   it('can be switched off for an account', async () => {

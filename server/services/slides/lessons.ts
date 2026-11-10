@@ -2,6 +2,7 @@ import { AppError, DB, type Row } from '../../db.ts';
 import type { User } from '../../auth.ts';
 import { buildDeck, readSample, type DeckSlide, type SampleInfo } from './pptx.ts';
 import { pdfPageCount, pdfPages, type LessonAsk } from './write.ts';
+import { bookLessons } from './book.ts';
 import { writerFor } from './ai.ts';
 export { setWriter } from './ai.ts';
 
@@ -16,9 +17,23 @@ const fileOut = (f: Row) => {
   const info = JSON.parse(f.info || '{}');
   return {
     id: f.id, kind: f.kind, title: f.title, filename: f.filename, size: f.size, createdAt: f.created_at,
-    ...(f.kind === 'book' ? { pages: info.pages ?? null } : { slideCount: info.slideCount ?? null }),
+    ...(f.kind === 'book' ? { pages: info.pages ?? null, lessons: info.lessons ?? [] } : { slideCount: info.slideCount ?? null }),
   };
 };
+
+/**
+ * Finds the lessons of books uploaded before lesson lists existed (run at start-up, in the
+ * background). `current` returns the live database, which a restore can swap meanwhile.
+ */
+export async function indexBooks(current: () => DB) {
+  const ids = current().all("SELECT id FROM slide_files WHERE kind = 'book' AND json_extract(info, '$.lessons') IS NULL").map((r) => r.id as number);
+  for (const id of ids) {
+    const row = current().get('SELECT data, info FROM slide_files WHERE id = ?', id);
+    if (!row) continue;
+    const lessons = await bookLessons(Buffer.from(row.data as Uint8Array));
+    current().run("UPDATE slide_files SET info = json_set(info, '$.lessons', json(?)) WHERE id = ?", JSON.stringify(lessons), id);
+  }
+}
 
 export function listFiles(db: DB, u: User) {
   return db.all('SELECT id, kind, title, filename, size, info, created_at FROM slide_files WHERE owner_id = ? ORDER BY kind, created_at DESC', u.id).map(fileOut);
@@ -43,7 +58,7 @@ export async function addFile(db: DB, u: User, body: Buffer, filename: string, t
     info = s;
   } else if (ext === 'pdf') {
     kind = 'book';
-    info = { pages: await pdfPageCount(body) };
+    info = { pages: await pdfPageCount(body), lessons: await bookLessons(body) };
   } else throw new AppError(422, 'Upload a sample deck as .pptx or a book as .pdf.');
   const t = (title ?? '').trim().slice(0, 200) || name.replace(/\.[^.]+$/, '');
   const id = db.tx(() => {

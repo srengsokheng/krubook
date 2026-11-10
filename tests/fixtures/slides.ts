@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, StandardFonts } from 'pdf-lib';
 
 // A tiny deck in the shape of the real C++ decks: a title, a lead line, three bullets (each a dot
 // shape beside a text box), a footer and a page number; plus a cover slide.
@@ -33,9 +33,21 @@ export async function sampleDeck(): Promise<Buffer> {
   return z.generateAsync({ type: 'nodebuffer' });
 }
 
+/**
+ * A book of `pages` pages laid out like the C++ book: page 1 is the contents, then "Lesson 1: The
+ * Basics" as a running header, and from the middle on "Lesson 2: Loops and More".
+ */
 export async function bookPdf(pages = 5): Promise<Buffer> {
   const d = await PDFDocument.create();
-  for (let i = 0; i < pages; i++) d.addPage([300, 400]);
+  const font = await d.embedFont(StandardFonts.Helvetica);
+  const half = Math.max(2, Math.ceil((pages + 1) / 2));
+  for (let i = 1; i <= pages; i++) {
+    const p = d.addPage([300, 400]);
+    const lines = i === 1
+      ? ['Table of Contents', 'Lesson 1: The Basics ........ 1', 'Lesson 2: Loops and More ........ 3']
+      : [`Lesson ${i < half ? 1 : 2}: ${i < half ? 'The Basics' : 'Loops and More'}`, 'SETEC Institute', `${i - 1}`, 'Some text about the lesson.'];
+    lines.forEach((t, n) => p.drawText(t, { x: 20, y: 370 - n * 20, size: 10, font }));
+  }
   return Buffer.from(await d.save());
 }
 
