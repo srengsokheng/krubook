@@ -35,7 +35,8 @@ export function Timetable() {
     return all.filter((d) => weekday(d) !== 0 || data.sessions.some((s: any) => s.date === d) || data.ghosts.some((g: any) => g.date === d));
   }, [data]);
   const clash = useMemo(() => new Set<number>((data?.overlaps ?? []).flat()), [data]);
-  const holidayOn = (d: string) => holidays?.filter((h) => h.date === d).map((h) => (lang === 'km' && h.name_km) || h.name)[0];
+  // A holiday can cover several days (date to end_date); every day in it is marked.
+  const holidayOn = (d: string) => holidays?.filter((h) => d >= h.date && d <= (h.end_date ?? h.date)).map((h) => (lang === 'km' && h.name_km) || h.name)[0];
 
   if (error) return <div className="page"><ErrorNote error={error} retry={reload} /></div>;
   if (loading && !data) return <div className="page"><Loading rows={6} /></div>;

@@ -57,6 +57,10 @@ test.describe('signed in', () => {
     await expect(page.getByText('E2E test break')).toHaveCount(1);
     const mine = ((await (await page.request.get('/api/holidays')).json()) as any[]).filter((h) => h.name === 'E2E test break');
     expect(mine).toEqual([expect.objectContaining({ date: '2026-12-21', end_date: '2026-12-23' })]);
+    // The timetable marks every day of the range, not only the first.
+    await page.goto('/timetable?week=2026-12-21');
+    await expect(page.locator('.tt-holiday', { hasText: 'E2E test break' })).toHaveCount(3);
+    await page.goto('/settings#holidays');
     await page.getByRole('button', { name: 'Remove E2E test break' }).click();
     await expect(page.getByRole('dialog')).toContainText('All 3 days');
     await page.getByRole('dialog').getByRole('button', { name: 'Remove' }).click();
