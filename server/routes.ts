@@ -822,6 +822,7 @@ export function buildRouter(holder: DBHolder): Router {
   del('/groups/:id/members/:enrollmentId', (req, db, u) => groups.removeMember(db, u, num(req.params.id, 'group'), num(req.params.enrollmentId, 'student')));
   put('/groups/:id/scores', (req, db, u) => groups.saveScores(db, u, num(req.params.id, 'group'), req.body ?? {}));
   put('/classes/:id/grade-config', (req, db, u) => records.saveConfig(db, u, num(req.params.id, 'class'), req.body));
+  post('/classes/:id/grade-config/apply-to-course', (req, db, u) => records.applyConfigToCourse(db, u, num(req.params.id, 'class')));
   post('/classes/:id/grade-config/status', (req, db, u) => records.setConfigStatus(db, u, num(req.params.id, 'class'), req.body.status));
   get('/sessions/:id/attendance', (req, db, u) => records.sessionAttendance(db, u, num(req.params.id, 'session')));
   get('/classes/:id/attendance', (req, db, u) => {

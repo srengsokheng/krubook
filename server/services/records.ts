@@ -13,10 +13,22 @@ export function ensureConfig(db: DB, classId: number): Row {
   const existing = db.get('SELECT * FROM grade_configs WHERE class_id = ?', classId);
   if (existing) return existing;
   return db.tx(() => {
-    const term = db.get('SELECT t.grade_target FROM classes c JOIN terms t ON t.id = c.term_id WHERE c.id = ?', classId)!;
-    const id = db.run('INSERT INTO grade_configs (class_id, target_total) VALUES (?, ?)', classId, term.grade_target).id;
-    for (const c of DEFAULT_COMPONENTS) db.run('INSERT INTO grade_components (config_id, position, key, name, max_score, kind) VALUES (?,?,?,?,?,?)', id, c.position, c.key, c.name, c.max, c.kind);
-    if (term.grade_target === 100) db.run("UPDATE grade_configs SET status = 'active' WHERE id = ?", id);
+    const term = db.get('SELECT t.grade_target, c.course_id, c.teacher_id FROM classes c JOIN terms t ON t.id = c.term_id WHERE c.id = ?', classId)!;
+    // A new class grades like the most recent class of the same course (e.g. C++ midterm /25),
+    // when that one is complete; otherwise it starts from the standard setup.
+    const model = db.get(
+      `SELECT g.* FROM grade_configs g JOIN classes c ON c.id = g.class_id
+        WHERE c.course_id = ? AND c.teacher_id = ? AND c.id <> ? AND g.target_total = ? ORDER BY c.start_date DESC, c.id DESC LIMIT 1`,
+      term.course_id, term.teacher_id, classId, term.grade_target,
+    );
+    const modelComps = model ? db.all('SELECT * FROM grade_components WHERE config_id = ? ORDER BY position, id', model.id) : [];
+    const usable = model && modelComps.length && Math.round(modelComps.reduce((s, c) => s + c.max_score, 0) * 100) / 100 === term.grade_target;
+    const id = db.run('INSERT INTO grade_configs (class_id, target_total, pass_mark, label_pass, label_fail, attendance_rule) VALUES (?,?,?,?,?,?)',
+      classId, term.grade_target, usable ? model.pass_mark : 50, usable ? model.label_pass : 'ជាប់', usable ? model.label_fail : 'ធ្លាក់',
+      usable ? model.attendance_rule : '{"lateCredit":0.5,"excused":"exclude"}').id;
+    const comps = usable ? modelComps.map((c) => ({ position: c.position, key: c.key, name: c.name, max: c.max_score, kind: c.kind })) : DEFAULT_COMPONENTS;
+    for (const c of comps) db.run('INSERT INTO grade_components (config_id, position, key, name, max_score, kind) VALUES (?,?,?,?,?,?)', id, c.position, c.key, c.name, c.max, c.kind);
+    if (term.grade_target === 100 || usable) db.run("UPDATE grade_configs SET status = 'active' WHERE id = ?", id);
     return db.get('SELECT * FROM grade_configs WHERE id = ?', id)!;
   });
 }
@@ -52,6 +64,15 @@ export function saveConfig(db: DB, u: User, classId: number, body: ConfigBody) {
     seen.add((c.key = k));
   }
   const check = checkConfig({ targetTotal: body.targetTotal, passMark: body.passMark, components: comps.map((c, i) => ({ ...c, id: c.id ?? -i })) });
+  // A maximum cannot go below a mark already given in that column.
+  for (const c of comps) {
+    if (!c.id) continue;
+    const over = db.all(
+      `SELECT s.student_code, sc.value FROM scores sc JOIN enrollments e ON e.id = sc.enrollment_id JOIN students s ON s.id = e.student_id
+        WHERE sc.component_id = ? AND sc.value > ? ORDER BY sc.value DESC LIMIT 3`, c.id, Number(c.max),
+    );
+    if (over.length) throw new AppError(422, `${c.name} cannot be out of ${c.max}: ${over.map((o) => `${o.student_code} already has ${o.value}`).join(', ')}. Lower those marks first.`);
+  }
 
   try {
     db.tx(() => {
@@ -78,6 +99,38 @@ export function saveConfig(db: DB, u: User, classId: number, body: ConfigBody) {
     throw mapped ?? e;
   }
   return gradebook(db, u, classId);
+}
+
+/**
+ * Gives the other classes of the same course the grading setup of this one (e.g. C++ midterm /25
+ * in every C++ class). Columns are matched by their key, so existing marks stay in their column.
+ * A finalized class, or one where a change would drop a column holding marks or go below a mark
+ * already given, is left as it is and reported.
+ */
+export function applyConfigToCourse(db: DB, u: User, classId: number) {
+  const cls = ownClass(db, u, classId);
+  const { row, config } = loadConfig(db, classId);
+  const others = db.all("SELECT id, code FROM classes WHERE course_id = ? AND teacher_id = ? AND id <> ? AND status <> 'archived' ORDER BY code", cls.course_id, u.id, cls.id);
+  const updated: string[] = [];
+  const skipped: Array<{ code: string; reason: string }> = [];
+  for (const o of others) {
+    const { row: theirs, config: their } = loadConfig(db, o.id);
+    if (theirs.status === 'finalized') { skipped.push({ code: o.code, reason: 'gradebook is finalized' }); continue; }
+    const byKey = new Map(their.components.map((c) => [c.key, c.id]));
+    try {
+      db.tx(() => {
+        saveConfig(db, u, o.id, {
+          targetTotal: config.targetTotal, passMark: config.passMark, labelPass: row.label_pass, labelFail: row.label_fail, attendanceRule: config.attendanceRule,
+          components: config.components.map((c) => ({ id: byKey.get(c.key), key: c.key, name: c.name, max: c.max, kind: c.kind })),
+        });
+        if (theirs.status === 'active' && checkConfig(config).valid) db.run("UPDATE grade_configs SET status = 'active' WHERE id = ?", theirs.id);
+      });
+      updated.push(o.code);
+    } catch (e) {
+      skipped.push({ code: o.code, reason: e instanceof AppError ? e.message : 'could not be changed' });
+    }
+  }
+  return { updated, skipped };
 }
 
 export function setConfigStatus(db: DB, u: User, classId: number, status: 'draft' | 'active' | 'finalized') {

@@ -264,14 +264,22 @@ function ConfigEditor({ cls, data, onClose, onSaved }: { cls: any; data: any; on
   const c = data.config;
   const [f, setF] = useState({ targetTotal: c.targetTotal, passMark: c.passMark, labelPass: c.labelPass, labelFail: c.labelFail, attendanceRule: c.attendanceRule });
   const [comps, setComps] = useState<any[]>(c.components.map((x: any) => ({ ...x })));
+  const [wholeCourse, setWholeCourse] = useState(false);
   const { busy, run } = useAction();
+  const toast = useToast();
   const check = checkConfig({ targetTotal: f.targetTotal, passMark: f.passMark, components: comps.map((x, i) => ({ ...x, id: x.id ?? -i, key: x.key ?? x.name, max: Number(x.max) })) });
   const set = (i: number, patch: any) => setComps(comps.map((x, j) => (i === j ? { ...x, ...patch } : x)));
   const move = (i: number, d: number) => { const n = [...comps]; const [x] = n.splice(i, 1); n.splice(i + d, 0, x); setComps(n); };
   const save = (activate: boolean) => run(async () => {
     await api(`/classes/${cls.id}/grade-config`, { method: 'PUT', body: { ...f, components: comps.map((x) => ({ ...x, max: Number(x.max) })) } });
     if (activate) await api(`/classes/${cls.id}/grade-config/status`, { body: { status: 'active' } });
-  }, activate ? 'Grading setup saved and active' : 'Saved as draft').then(() => onSaved());
+    if (wholeCourse) {
+      const r = await api<{ updated: string[]; skipped: Array<{ code: string; reason: string }> }>(`/classes/${cls.id}/grade-config/apply-to-course`, { body: {} });
+      if (r.updated.length) toast(`Also updated ${r.updated.join(', ')}`);
+      for (const s of r.skipped) toast(`${s.code} not changed: ${s.reason}`, 'bad');
+    }
+    return true;
+  }, activate ? 'Grading setup saved and active' : 'Saved as draft').then((ok) => { if (ok) onSaved(); });
   return (
     <Dialog wide title={`Grading setup · ${cls.code}`} onClose={onClose} footer={<>
       <button className="btn" onClick={onClose}>Cancel</button>
@@ -308,6 +316,10 @@ function ConfigEditor({ cls, data, onClose, onSaved }: { cls: any; data: any; on
         </table>
       </div>
       <button className="btn sm" style={{ alignSelf: 'flex-start' }} onClick={() => setComps([...comps, { name: 'New component', max: 5, kind: 'manual' }])}><Icon name="plus" />Add component</button>
+      <label className="check small">
+        <input id="g-whole-course" type="checkbox" checked={wholeCourse} onChange={(e) => setWholeCourse(e.target.checked)} />
+        Also use this setup in my other {cls.course?.name ?? 'same-course'} classes. Marks stay in their columns; finalized gradebooks are not changed. New classes of the course start with it too.
+      </label>
       <div className="form-grid">
         <Field label="Target total"><input id="g-target" type="number" value={f.targetTotal} onChange={(e) => setF({ ...f, targetTotal: +e.target.value })} /></Field>
         <Field label="Pass mark"><input id="g-pass" type="number" value={f.passMark} onChange={(e) => setF({ ...f, passMark: +e.target.value })} /></Field>
