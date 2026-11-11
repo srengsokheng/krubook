@@ -11,7 +11,7 @@ import { AppError, DB, type Row } from '../db.ts';
 export const BACKUP_TABLES = [
   'users', 'settings', 'courses', 'lessons', 'lesson_parts', 'materials', 'template_weeks', 'terms', 'holidays',
   'classes', 'meetings', 'class_files', 'sessions', 'teaching_records', 'checkins', 'record_parts', 'schedule_proposals', 'students', 'enrollments',
-  'grade_configs', 'grade_components', 'scores', 'score_archive', 'attendance', 'rates', 'pay_statements', 'pay_statement_lines', 'pay_adjustments', 'payments', 'slide_files', 'slide_lessons', 'notification_log', 'audit_log',
+  'grade_configs', 'grade_components', 'scores', 'score_archive', 'group_sets', 'student_groups', 'group_members', 'attendance', 'rates', 'pay_statements', 'pay_statement_lines', 'pay_adjustments', 'payments', 'slide_files', 'slide_lessons', 'notification_log', 'audit_log',
 ] as const;
 
 export interface Backup {

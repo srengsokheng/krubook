@@ -18,6 +18,9 @@ export function GradebookTab({ cls }: { cls: any }) {
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<{ key: string; dir: 1 | -1 }>({ key: 'code', dir: 1 });
   const [filter, setFilter] = useState<'all' | 'missing' | 'risk'>('all');
+  // Show one group of a group list (Groups tab), e.g. to enter a team's marks together.
+  const { data: groupRows } = useApi<Array<{ set_id: number; set_name: string; group_id: number; group_name: string; topic: string | null; enrollment_id: number }>>(`/classes/${cls.id}/group-membership`);
+  const [group, setGroup] = useState('');
   const [editing, setEditing] = useState(false);
   const [migrating, setMigrating] = useState(false);
   const [focusRow, setFocusRow] = useState<number | null>(null);
@@ -72,6 +75,10 @@ export function GradebookTab({ cls }: { cls: any }) {
     let list = rows.filter((r: any) => !q || r.code.toLowerCase().includes(q) || (r.nameLatin ?? '').toLowerCase().includes(q) || (r.nameKm ?? '').includes(q));
     if (filter === 'missing') list = list.filter((r: any) => r.missing.length);
     if (filter === 'risk') list = list.filter((r: any) => r.atRisk);
+    if (group) {
+      const members = new Set((groupRows ?? []).filter((g) => String(g.group_id) === group).map((g) => g.enrollment_id));
+      list = list.filter((r: any) => members.has(r.enrollmentId));
+    }
     const val = (r: any) => (sort.key === 'code' ? r.code : sort.key === 'km' ? r.nameKm ?? '' : sort.key === 'latin' ? r.nameLatin ?? '' : sort.key === 'total' ? r.total : r.values[+sort.key] ?? -1);
     const collator = new Intl.Collator(sort.key === 'km' ? 'km' : 'en', { numeric: true });
     return [...list].sort((a, b) => {
@@ -80,7 +87,7 @@ export function GradebookTab({ cls }: { cls: any }) {
       const x = val(a), y = val(b);
       return (typeof x === 'number' && typeof y === 'number' ? x - y : collator.compare(String(x), String(y))) * sort.dir;
     });
-  }, [rows, query, filter, sort]);
+  }, [rows, query, filter, sort, group, groupRows]);
 
   const stats = useMemo(() => classStats(rows.filter((r: any) => r.enrollmentStatus === 'active' || r.enrollmentStatus === 'completed')), [rows]);
   const editable = data?.config.status !== 'finalized';
@@ -176,6 +183,12 @@ export function GradebookTab({ cls }: { cls: any }) {
           <div className="seg">
             {(['all', 'missing', 'risk'] as const).map((f) => <button key={f} className={filter === f ? 'on' : ''} onClick={() => setFilter(f)}>{f === 'all' ? 'All' : f === 'missing' ? 'Missing scores' : 'At risk'}</button>)}
           </div>
+          {!!groupRows?.length && (
+            <select aria-label="Show group" value={group} onChange={(e) => setGroup(e.target.value)}>
+              <option value="">All groups</option>
+              {[...new Map(groupRows.map((g) => [g.group_id, g])).values()].map((g) => <option key={g.group_id} value={g.group_id}>{g.set_name}: {g.group_name}{g.topic ? ` — ${g.topic}` : ''}</option>)}
+            </select>
+          )}
         </div>
         <div className="row">
           <Pill tone={data.config.status === 'active' ? 'ok' : data.config.status === 'finalized' ? 'ink' : 'warn'}>{data.config.status}</Pill>

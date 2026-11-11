@@ -18,6 +18,7 @@ import * as pay from './services/pay.ts';
 import * as reconcile from './services/reconcile.ts';
 import * as checkin from './services/checkin.ts';
 import * as merge from './services/merge.ts';
+import * as groups from './services/groups.ts';
 import { PAGE_SIZES, pageArray, paged, readPage, readSort } from './paging.ts';
 import { addDays, diffDays, isISODate, isTime, rangesOverlap, startOfWeek } from '../shared/dates.ts';
 import { findOverlaps, standardTemplate, type SessionRule } from '../shared/schedule.ts';
@@ -807,6 +808,19 @@ export function buildRouter(holder: DBHolder): Router {
 
   // ---- Gradebook & attendance --------------------------------------------------------------
   get('/classes/:id/gradebook', (req, db, u) => records.gradebook(db, u, num(req.params.id, 'class')));
+  // ---- Student groups for group work ---------------------------------------------------------
+  get('/classes/:id/groups', (req, db, u) => groups.listSets(db, u, num(req.params.id, 'class')));
+  get('/classes/:id/group-membership', (req, db, u) => groups.membership(db, u, num(req.params.id, 'class')));
+  post('/classes/:id/group-sets', (req, db, u) => groups.createSet(db, u, num(req.params.id, 'class'), req.body ?? {}));
+  put('/group-sets/:id', (req, db, u) => groups.updateSet(db, u, num(req.params.id, 'group list'), req.body ?? {}));
+  del('/group-sets/:id', (req, db, u) => groups.deleteSet(db, u, num(req.params.id, 'group list')));
+  post('/group-sets/:id/split', (req, db, u) => groups.splitUnassigned(db, u, num(req.params.id, 'group list'), req.body ?? {}));
+  post('/group-sets/:id/groups', (req, db, u) => groups.createGroup(db, u, num(req.params.id, 'group list'), req.body ?? {}));
+  put('/groups/:id', (req, db, u) => groups.updateGroup(db, u, num(req.params.id, 'group'), req.body ?? {}));
+  del('/groups/:id', (req, db, u) => groups.deleteGroup(db, u, num(req.params.id, 'group')));
+  post('/groups/:id/members', (req, db, u) => groups.addMembers(db, u, num(req.params.id, 'group'), req.body?.enrollmentIds));
+  del('/groups/:id/members/:enrollmentId', (req, db, u) => groups.removeMember(db, u, num(req.params.id, 'group'), num(req.params.enrollmentId, 'student')));
+  put('/groups/:id/scores', (req, db, u) => groups.saveScores(db, u, num(req.params.id, 'group'), req.body ?? {}));
   put('/classes/:id/grade-config', (req, db, u) => records.saveConfig(db, u, num(req.params.id, 'class'), req.body));
   post('/classes/:id/grade-config/status', (req, db, u) => records.setConfigStatus(db, u, num(req.params.id, 'class'), req.body.status));
   get('/sessions/:id/attendance', (req, db, u) => records.sessionAttendance(db, u, num(req.params.id, 'session')));

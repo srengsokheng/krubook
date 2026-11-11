@@ -8,6 +8,7 @@ import { RosterTab } from './RosterTab.tsx';
 import { AttendanceTab } from './AttendanceTab.tsx';
 import { GradebookTab } from './GradebookTab.tsx';
 import { FilesTab } from './FilesTab.tsx';
+import { GroupsTab } from './GroupsTab.tsx';
 import { MeetingsEditor, meetingText } from './Classes.tsx';
 import { formatDate, weekdayName } from '../../../shared/dates.ts';
 
@@ -38,6 +39,7 @@ export function ClassDetail() {
         <NavLink to={`${base}/plan`}>{t('Term plan')}</NavLink>
         <NavLink to={`${base}/attendance`}>{t('Attendance')}</NavLink>
         <NavLink to={`${base}/grades`}>{t('Gradebook')}</NavLink>
+        <NavLink to={`${base}/groups`}>Groups</NavLink>
         <NavLink to={`${base}/roster`}>{t('Roster')}</NavLink>
         <NavLink to={`${base}/files`}>Exams &amp; files</NavLink>
         <NavLink to={`${base}/setup`}>{t('Setup')}</NavLink>
@@ -47,6 +49,7 @@ export function ClassDetail() {
         <Route path="plan" element={<PlanTab cls={c} onChanged={reload} />} />
         <Route path="attendance" element={<AttendanceTab cls={c} />} />
         <Route path="grades" element={<GradebookTab cls={c} />} />
+        <Route path="groups" element={<GroupsTab cls={c} />} />
         <Route path="roster" element={<RosterTab cls={c} onChanged={reload} />} />
         <Route path="files" element={<FilesTab cls={c} />} />
         <Route path="setup" element={<Setup c={c} onChanged={reload} />} />

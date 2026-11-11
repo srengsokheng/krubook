@@ -652,4 +652,37 @@ CREATE TABLE api_tokens (
 );
 CREATE INDEX api_tokens_user ON api_tokens(user_id);
 `,
+  /* 11: student groups for group work (a midterm or final project): one set of groups per piece of
+     work, each group with a topic and exam paper, a group score shared by its members and an
+     individual score per member; their sum goes into the linked gradebook column. */ `
+CREATE TABLE group_sets (
+  id INTEGER PRIMARY KEY,
+  class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  component_id INTEGER REFERENCES grade_components(id) ON DELETE SET NULL,
+  group_max REAL CHECK (group_max IS NULL OR group_max >= 0),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX group_sets_class ON group_sets(class_id);
+CREATE TABLE student_groups (
+  id INTEGER PRIMARY KEY,
+  set_id INTEGER NOT NULL REFERENCES group_sets(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL DEFAULT 0,
+  name TEXT NOT NULL,
+  topic TEXT,
+  exam TEXT,
+  note TEXT,
+  group_score REAL CHECK (group_score IS NULL OR group_score >= 0)
+);
+CREATE INDEX student_groups_set ON student_groups(set_id, position);
+CREATE TABLE group_members (
+  id INTEGER PRIMARY KEY,
+  set_id INTEGER NOT NULL REFERENCES group_sets(id) ON DELETE CASCADE,
+  group_id INTEGER NOT NULL REFERENCES student_groups(id) ON DELETE CASCADE,
+  enrollment_id INTEGER NOT NULL REFERENCES enrollments(id) ON DELETE CASCADE,
+  individual_score REAL CHECK (individual_score IS NULL OR individual_score >= 0),
+  UNIQUE (set_id, enrollment_id)
+);
+CREATE INDEX group_members_group ON group_members(group_id);
+`,
 ];

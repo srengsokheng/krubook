@@ -264,6 +264,41 @@ test.describe('signed in', () => {
     await expect.poll(async () => (await (await page.request.get('/api/slides/status')).json())).toMatchObject({ provider: 'anthropic', model: 'claude-haiku-5-5' });
   });
 
+  test('groups: make groups, give a group score and an individual score, see them in the gradebook', async ({ page }) => {
+    await page.goto('/classes/1/groups');
+    await page.getByRole('button', { name: 'New group list' }).click();
+    await page.locator('#gs-name').fill('Final project');
+    const final = page.locator('#gs-column option', { hasText: 'Final' }).first();
+    await page.locator('#gs-column').selectOption({ label: (await final.textContent())!.trim() });
+    await page.locator('#gs-groupmax').fill('10');
+    await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
+    await page.getByRole('button', { name: 'Make groups automatically…' }).click();
+    await page.locator('#split-size').fill('3');
+    await page.getByRole('dialog').getByRole('button', { name: 'Make groups' }).click();
+    const g1 = page.getByRole('region', { name: 'Group 1', exact: true });
+    await expect(g1).toBeVisible();
+    await g1.getByLabel('Topic of Group 1', { exact: true }).fill('Library system');
+    await g1.getByRole('button', { name: 'Save group details' }).click();
+    await expect(page.getByText('Group saved')).toBeVisible();
+    const firstCode = (await g1.locator('td .mono').first().textContent())!.trim();
+    await g1.getByLabel('Group score of Group 1', { exact: true }).fill('8');
+    await g1.getByLabel(`Individual score of ${firstCode}`).fill('2.5');
+    await g1.getByRole('button', { name: /^Save marks to/ }).click();
+    await expect(g1.getByRole('cell', { name: '10.5', exact: true })).toBeVisible();
+    // Search finds the group by topic, and by a member's ID.
+    await page.getByLabel('Search groups').fill('library');
+    await expect(page.getByRole('region', { name: /^Group \d+$/ })).toHaveCount(1);
+    await page.getByLabel('Search groups').fill(firstCode);
+    await expect(page.getByRole('region', { name: 'Group 1', exact: true })).toBeVisible();
+    // The gradebook shows the mark and can show one group.
+    await page.goto('/classes/1/grades');
+    await page.getByLabel('Show group').selectOption({ label: 'Final project: Group 1 — Library system' });
+    const count = await page.locator('table.sheet tbody tr').count();
+    expect(count).toBeGreaterThan(0);
+    expect(count).toBeLessThanOrEqual(4);
+    await expect(page.getByLabel(new RegExp(`^Final.* for ${firstCode}$`))).toHaveValue('10.5');
+  });
+
   test('access tokens: create one, it is shown once and works, then revoke it', async ({ page, playwright }) => {
     await page.goto('/settings');
     await page.locator('#tok-name').fill('E2E helper');
