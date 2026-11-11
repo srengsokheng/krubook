@@ -2,7 +2,7 @@ import express, { type Request, type Response, type Router } from 'express';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { AppError, translateDbError, type DB, type Row } from './db.ts';
-import { addAccount, checkLoginRate, endSession, requireUser, sessionToken, startSession, verifyPassword, type User } from './auth.ts';
+import { addAccount, checkLoginRate, createApiToken, endSession, requireUser, sessionToken, startSession, verifyPassword, type User } from './auth.ts';
 import * as slides from './services/slides/lessons.ts';
 import * as ai from './services/slides/ai.ts';
 import * as accounts from './services/accounts.ts';
@@ -107,7 +107,11 @@ export function buildRouter(holder: DBHolder): Router {
   // - a feature switched off for the account is refused;
   // - after the paid-until date the account is read-only (it can still sign in and look).
   const ALWAYS = new Set(['/auth/me', '/auth/logout', '/account/password', '/prefs']);
+  // An access token works the API like its owner, except it cannot touch the account itself
+  // (password, other tokens), manage accounts, or back up and restore the whole system.
+  const TOKEN_REFUSED = /^\/(account(\/|$)|admin(\/|$)|auth\/(?!me$)|restore$|backup)/;
   function guard(req: Request, db: DB, u: User) {
+    if (req.viaToken && TOKEN_REFUSED.test(req.path)) throw new AppError(403, 'An access token cannot do this. Sign in to KruBook in the browser instead.', { code: 'TOKEN_NOT_ALLOWED' });
     if (ALWAYS.has(req.path)) return;
     if (u.mustChangePassword) throw new AppError(403, 'Choose your own password first.', { code: 'PASSWORD_CHANGE_REQUIRED' });
     const f = featureOf(req.path);
@@ -163,6 +167,26 @@ export function buildRouter(holder: DBHolder): Router {
 
   // ---- Accounts ------------------------------------------------------------------------------
   post('/account/password', (req, db, u) => { accounts.changeOwnPassword(db, u, sessionToken(req), req.body ?? {}); return { ok: true }; });
+  // Access tokens: your own only. The token is returned once, when created.
+  const TOKEN_COLS = "*, (revoked_at IS NULL AND expires_at > datetime('now')) AS active";
+  const tokenOut = (t: Row) => ({ id: t.id, name: t.name, ending: t.ending, createdAt: t.created_at, expiresAt: t.expires_at, lastUsedAt: t.last_used_at, revokedAt: t.revoked_at, active: !!t.active });
+  get('/account/tokens', (_req, db, u) => db.all(`SELECT ${TOKEN_COLS} FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC, id DESC`, u.id).map(tokenOut));
+  post('/account/tokens', (req, db, u) => {
+    const name = (str(req.body?.name, 'Name') as string).slice(0, 80);
+    const days = Number(req.body?.days ?? 30);
+    if (!Number.isInteger(days) || days < 1 || days > 90) throw new AppError(422, 'A token can last from 1 to 90 days.');
+    const r = db.tx(() => {
+      const r = createApiToken(db, u.id, name, days);
+      db.audit(u.id, 'api_token', r.id, 'create', undefined, { name, days, ending: r.token.slice(-4) });
+      return r;
+    });
+    return { token: r.token, ...tokenOut(db.get(`SELECT ${TOKEN_COLS} FROM api_tokens WHERE id = ?`, r.id)!) };
+  });
+  del('/account/tokens/:id', (req, db, u) => {
+    const t = db.get('SELECT * FROM api_tokens WHERE id = ? AND user_id = ?', num(req.params.id, 'token'), u.id);
+    if (!t) throw new AppError(404, 'Token not found.');
+    db.tx(() => { db.run("UPDATE api_tokens SET revoked_at = COALESCE(revoked_at, datetime('now')) WHERE id = ?", t.id); db.audit(u.id, 'api_token', t.id, 'revoke', { name: t.name }); });
+  });
   get('/admin/accounts', (_req, db, u) => accounts.listAccounts(db, u));
   post('/admin/accounts', (req, db, u) => accounts.createAccount(db, u, req.body ?? {}));
   put('/admin/accounts/:id', (req, db, u) => accounts.updateAccount(db, u, num(req.params.id, 'account'), req.body ?? {}));

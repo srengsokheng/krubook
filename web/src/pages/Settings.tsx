@@ -71,6 +71,8 @@ export function Settings({ me }: { me: Me }) {
 
         {tab === 'general' && <AccountPanel me={me} />}
 
+        {tab === 'general' && <TokensPanel />}
+
         {tab === 'general' && (
         <section className="panel">
           <div className="panel-head"><h2>Status names</h2></div>
@@ -227,6 +229,68 @@ function BackupStatus() {
       {line('Nightly copy on this server', data.local, 'no record yet')}
       {line('Off-site copy', data.offsite, 'not configured')}
     </div>
+  );
+}
+
+type ApiToken = { id: number; name: string; ending: string; createdAt: string; expiresAt: string; lastUsedAt: string | null; revokedAt: string | null; active: boolean };
+
+/**
+ * Access tokens let a helper (a script, an assistant) use KruBook as you without your password.
+ * A token is shown once; it cannot change your password, make tokens, manage accounts or restore.
+ */
+function TokensPanel() {
+  const { data, reload } = useApi<ApiToken[]>('/account/tokens');
+  const [name, setName] = useState('');
+  const [days, setDays] = useState('30');
+  const [shown, setShown] = useState<{ name: string; token: string } | null>(null);
+  const [revoke, setRevoke] = useState<ApiToken | null>(null);
+  const { busy, run } = useAction();
+  const toast = useToast();
+  const create = () => run(() => api<ApiToken & { token: string }>('/account/tokens', { body: { name, days: Number(days) } })).then((r) => {
+    if (r) { setShown({ name: r.name, token: r.token }); setName(''); reload(); }
+  });
+  const active = (data ?? []).filter((t) => t.active);
+  return (
+    <section className="panel">
+      <div className="panel-head"><h2>Access tokens</h2><span className="faint small">{active.length} active</span></div>
+      <div className="panel-body stack">
+        <p className="faint xs" style={{ margin: 0 }}>A token lets a helper, such as an AI assistant, work in KruBook as you without your password. It cannot change your password, create tokens, manage accounts or restore backups. Give it only to something you trust, and revoke it when the job is done.</p>
+        {shown && (
+          <Notice tone="ok">
+            <div className="stack" style={{ gap: 6 }}>
+              <b>Copy “{shown.name}” now — it is not shown again.</b>
+              <code className="mono small" style={{ wordBreak: 'break-all', userSelect: 'all' }} aria-label="New access token">{shown.token}</code>
+              <div className="row">
+                <button className="btn sm" onClick={() => { void navigator.clipboard?.writeText(shown.token).then(() => toast('Copied')); }}>Copy</button>
+                <button className="btn sm ghost" onClick={() => setShown(null)}>Done</button>
+              </div>
+            </div>
+          </Notice>
+        )}
+        <div className="form-grid">
+          <Field label="Name" hint="What it is for, e.g. “Claude import”."><input id="tok-name" value={name} onChange={(e) => setName(e.target.value)} /></Field>
+          <Field label="Lasts">
+            <select id="tok-days" value={days} onChange={(e) => setDays(e.target.value)}>
+              {[['1', '1 day'], ['7', '7 days'], ['30', '30 days'], ['90', '90 days']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </Field>
+        </div>
+        <button className="btn" style={{ alignSelf: 'flex-start' }} disabled={busy || !name.trim()} onClick={() => void create()}>Create token</button>
+        {data && data.length > 0 && (
+          <ul className="ledger" style={{ margin: '0 -18px' }}>
+            {data.map((t) => (
+              <li key={t.id} className={t.active ? '' : 'is-dim'}>
+                <span className="grow small"><b>{t.name}</b> <span className="mono faint">…{t.ending}</span>
+                  <div className="faint xs">{t.revokedAt ? `revoked ${t.revokedAt.slice(0, 10)}` : t.active ? `expires ${t.expiresAt.slice(0, 10)}` : `expired ${t.expiresAt.slice(0, 10)}`} · {t.lastUsedAt ? `last used ${t.lastUsedAt.slice(0, 16)}` : 'never used'}</div>
+                </span>
+                {t.active && <button className="btn sm danger" onClick={() => setRevoke(t)}>Revoke</button>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      {revoke && <Confirm title={`Revoke “${revoke.name}”?`} body="Anything using this token stops working at once." confirmLabel="Revoke" danger onConfirm={() => run(() => api(`/account/tokens/${revoke.id}`, { method: 'DELETE' }), 'Token revoked').then(reload)} onClose={() => setRevoke(null)} />}
+    </section>
   );
 }
 

@@ -121,8 +121,9 @@ function AddStudent({ cls, onClose, onDone }: { cls: any; onClose: () => void; o
 
 const FIELDS = [
   ['student_code', 'Student ID', /id|code|អត្តលេខ|លេខ/i],
-  ['name_km', 'Khmer name', /khmer|ខ្មែរ|ឈ្មោះ/i],
-  ['name_latin', 'Latin name', /latin|english|name/i],
+  // "name_km" / "name_en" (as Moodle exports and the SETEC lists use) are matched before plain "name".
+  ['name_km', 'Khmer name', /khmer|ខ្មែរ|ឈ្មោះ|_km\b|\bkm\b/i],
+  ['name_latin', 'Latin name', /latin|english|_en\b|\ben\b|name/i],
   ['gender', 'Gender', /gender|sex|ភេទ/i],
   ['email', 'Email', /mail/i],
   ['phone', 'Phone', /phone|tel|ទូរស័ព្ទ/i],

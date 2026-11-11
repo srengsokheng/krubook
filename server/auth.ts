@@ -1,4 +1,4 @@
-import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
 import { AppError, type DB } from './db.ts';
 import { holidayRanges, SOURCE_2026 } from '../shared/holidays.ts';
@@ -19,8 +19,29 @@ declare global {
   namespace Express {
     interface Request {
       user?: User;
+      /** Set when the request signed in with an access token instead of the browser cookie. */
+      viaToken?: boolean;
     }
   }
+}
+
+// ---- Access tokens ------------------------------------------------------------------------
+// "Authorization: Bearer kb_…" acts as the token's owner. Only a SHA-256 hash is stored; the token
+// itself is shown once, when it is created. Tokens expire (at most 90 days) and can be revoked.
+
+const TOKEN_PREFIX = 'kb_';
+const tokenHash = (t: string) => createHash('sha256').update(t).digest('hex');
+
+export function createApiToken(db: DB, userId: number, name: string, days: number) {
+  const token = TOKEN_PREFIX + randomBytes(32).toString('base64url');
+  const id = db.run("INSERT INTO api_tokens (user_id, name, token_hash, ending, expires_at) VALUES (?, ?, ?, ?, datetime('now', ?))",
+    userId, name, tokenHash(token), token.slice(-4), `+${days} days`).id;
+  return { id, token };
+}
+
+function bearer(req: Request): string | null {
+  const m = /^Bearer\s+(kb_[A-Za-z0-9_-]{20,})\s*$/.exec(req.headers.authorization ?? '');
+  return m ? m[1]! : null;
 }
 
 const COOKIE = 'kb_session';
@@ -131,6 +152,19 @@ export function authenticate(db: DB) {
         token,
       );
       if (u) req.user = { id: u.id, email: u.email, name: u.name, role: u.role, accessUntil: u.access_until, featuresOff: parseFeaturesOff(u.features_off), mustChangePassword: !!u.must_change_password };
+    }
+    const t = !req.user ? bearer(req) : null;
+    if (t) {
+      const u = db.get<any>(
+        `SELECT k.id AS token_id, u.id, u.email, u.name, u.role, u.access_until, u.features_off, u.must_change_password FROM api_tokens k JOIN users u ON u.id = k.user_id
+          WHERE k.token_hash = ? AND k.revoked_at IS NULL AND k.expires_at > datetime('now') AND u.status = 'active'`,
+        tokenHash(t),
+      );
+      if (u) {
+        req.user = { id: u.id, email: u.email, name: u.name, role: u.role, accessUntil: u.access_until, featuresOff: parseFeaturesOff(u.features_off), mustChangePassword: !!u.must_change_password };
+        req.viaToken = true;
+        db.run("UPDATE api_tokens SET last_used_at = datetime('now') WHERE id = ?", u.token_id);
+      }
     }
     next();
   };

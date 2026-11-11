@@ -638,4 +638,18 @@ CREATE TABLE slide_lessons (
 );
 CREATE INDEX slide_lessons_owner ON slide_lessons(owner_id, created_at);
 `,
+  /* 10: access tokens, so a helper (a script, an assistant) can use the API as you without your password */ `
+CREATE TABLE api_tokens (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  ending TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  expires_at TEXT NOT NULL,
+  last_used_at TEXT,
+  revoked_at TEXT
+);
+CREATE INDEX api_tokens_user ON api_tokens(user_id);
+`,
 ];

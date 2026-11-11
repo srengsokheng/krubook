@@ -264,6 +264,26 @@ test.describe('signed in', () => {
     await expect.poll(async () => (await (await page.request.get('/api/slides/status')).json())).toMatchObject({ provider: 'anthropic', model: 'claude-haiku-5-5' });
   });
 
+  test('access tokens: create one, it is shown once and works, then revoke it', async ({ page, playwright }) => {
+    await page.goto('/settings');
+    await page.locator('#tok-name').fill('E2E helper');
+    await page.getByRole('button', { name: 'Create token' }).click();
+    const token = (await page.getByLabel('New access token').textContent())!.trim();
+    expect(token).toMatch(/^kb_/);
+    // No cookies: only the token signs this helper in.
+    const helper = await playwright.request.newContext({ baseURL: 'http://127.0.0.1:4320', storageState: { cookies: [], origins: [] }, extraHTTPHeaders: { authorization: `Bearer ${token}` } });
+    const anon = await playwright.request.newContext({ baseURL: 'http://127.0.0.1:4320', storageState: { cookies: [], origins: [] } });
+    expect((await anon.get('/api/courses')).status()).toBe(401);
+    await anon.dispose();
+    expect((await helper.get('/api/courses')).status()).toBe(200);
+    await page.getByRole('button', { name: 'Done' }).click();
+    await expect(page.getByLabel('New access token')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Revoke' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Revoke' }).click();
+    await expect.poll(async () => (await helper.get('/api/courses')).status()).toBe(401);
+    await helper.dispose();
+  });
+
   test('theme: Light and Dark override the device, Auto follows it, and the choice survives a reload', async ({ page }) => {
     await page.goto('/');
     const themes = page.getByRole('group', { name: 'Theme' });

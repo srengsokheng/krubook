@@ -113,6 +113,7 @@ export function resetPassword(db: DB, admin: User, id: number) {
   db.tx(() => {
     db.run('UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ?', hashPassword(password), id);
     db.run('DELETE FROM auth_sessions WHERE user_id = ?', id);
+    db.run("UPDATE api_tokens SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL", id);
     db.audit(admin.id, 'user', id, 'reset_password', undefined, { email: old.email });
   });
   return { temporaryPassword: password };
@@ -122,6 +123,7 @@ export function signOutEverywhere(db: DB, admin: User, id: number) {
   requireAdmin(admin);
   getAccount(db, id);
   const n = db.run('DELETE FROM auth_sessions WHERE user_id = ?', id).changes;
+  db.run("UPDATE api_tokens SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL", id);
   db.audit(admin.id, 'user', id, 'sign_out', undefined, { sessions: n });
   return { signedOut: n };
 }
@@ -155,6 +157,7 @@ export function changeOwnPassword(db: DB, u: User, currentToken: string | null, 
   db.tx(() => {
     db.run('UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?', hashPassword(next), u.id);
     db.run('DELETE FROM auth_sessions WHERE user_id = ? AND token IS NOT ?', u.id, currentToken);
+    db.run("UPDATE api_tokens SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL", u.id);
     db.audit(u.id, 'user', u.id, 'change_password');
   });
 }
