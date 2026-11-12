@@ -288,22 +288,39 @@ table.table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
 .sync.conflict .dot { background: var(--bad); }
 
 /* ---------- Timetable ---------- */
-.tt { --hour: 56px; display: grid; grid-template-columns: 52px repeat(var(--days), minmax(120px, 1fr)); min-width: calc(52px + var(--days) * 120px); }
-.tt-head { position: sticky; top: 0; z-index: 2; background: var(--surface); border-bottom: 1px solid var(--rule-strong); padding: 8px 8px 6px; font-size: var(--fs-sm); }
+/* The timetable is part of the page (no scroll box of its own), so the page has the only
+   scrollbar and the day headers stay at the top of the window while scrolling. "clip" rounds the
+   corners without making a scroll container, which would stop the headers from sticking. */
+.tt-panel { overflow: clip; }
+.tt { --hour: 56px; display: grid; grid-template-columns: 52px repeat(var(--days), minmax(0, 1fr)); }
+.tt-head { position: sticky; top: 0; z-index: 4; background: var(--surface); border-bottom: 1px solid var(--rule-strong); padding: 8px 8px 6px; font-size: var(--fs-sm); min-width: 0; box-shadow: 0 1px 0 var(--rule-strong); }
 .tt-head.today { background: color-mix(in srgb, var(--marker) 55%, var(--surface)); color: var(--marker-ink); }
 .tt-head .d { font: 700 var(--fs-lg)/1 var(--font-display); }
 .tt-times { position: relative; border-right: 1px solid var(--rule); }
-.tt-times span { position: absolute; right: 6px; transform: translateY(-50%); font: 400 var(--fs-xs) var(--font-data); color: var(--ink-3); }
-.tt-col { position: relative; border-right: 1px solid var(--rule); background-image: repeating-linear-gradient(to bottom, var(--rule) 0, var(--rule) 1px, transparent 1px, transparent var(--hour)); }
+.tt-times span { position: absolute; right: 6px; transform: translateY(-50%); white-space: nowrap; font: 400 var(--fs-xs) var(--font-data); color: var(--ink-3); }
+.tt-col { position: relative; min-width: 0; border-right: 1px solid var(--rule); background-image: repeating-linear-gradient(to bottom, var(--rule) 0, var(--rule) 1px, transparent 1px, transparent var(--hour)); }
 .tt-col.today { background-color: color-mix(in srgb, var(--marker) 10%, transparent); }
 .tt-col.holiday { background-color: var(--surface-2); }
-.tt-holiday { position: absolute; inset: 4px 4px auto; font-size: var(--fs-xs); color: var(--ink-2); background: var(--surface); border: 1px dashed var(--rule-strong); padding: 3px 6px; border-radius: var(--r-sm); z-index: 1; }
+.tt-holiday { margin-top: 4px; font-size: var(--fs-xs); font-weight: 500; color: var(--ink-2); background: var(--surface-2); border: 1px dashed var(--rule-strong); padding: 2px 6px; border-radius: var(--r-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tt-head.today .tt-holiday { color: var(--ink); }
 .tt-ev {
   position: absolute; left: 3px; right: 3px; overflow: hidden; border-radius: var(--r-sm); padding: 4px 7px 4px 9px;
   background: color-mix(in srgb, var(--c) 13%, var(--surface)); border: 1px solid color-mix(in srgb, var(--c) 35%, transparent);
   color: var(--ink); font-size: var(--fs-xs); line-height: 1.35; cursor: pointer; text-align: left;
 }
 .tt-ev::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--c); }
+.tt-ev > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tt-ev .kind { flex-shrink: 0; }
+/* In a narrow day column the type badge becomes one letter so the code and time keep their line. */
+.tt-col { container-type: inline-size; }
+.tt-ev > .row { flex-wrap: nowrap; }
+@container (max-width: 135px) {
+  .tt-ev .kind { font-size: 0; padding: 2px 3px; }
+  .tt-ev .kind::before { font-size: 0.625rem; }
+  .tt-ev .kind.lecture::before { content: 'L'; }
+  .tt-ev .kind.practice::before { content: 'P'; }
+  .tt-ev .kind.exam::before { content: 'E'; }
+}
 .tt-ev .code { font: 600 var(--fs-sm) var(--font-data); }
 .tt-ev .t { font-family: var(--font-data); color: var(--ink-2); }
 .tt-ev.cancelled { background: var(--surface-2); border-style: dashed; color: var(--ink-3); }

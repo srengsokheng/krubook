@@ -60,6 +60,14 @@ test.describe('signed in', () => {
     // The timetable marks every day of the range, not only the first.
     await page.goto('/timetable?week=2026-12-21');
     await expect(page.locator('.tt-holiday', { hasText: 'E2E test break' })).toHaveCount(3);
+    // The holiday name sits in the day header, and the timetable has no scroll box of its own:
+    // the page is the only thing that scrolls, so the day headers can stay in view.
+    await expect(page.locator('.tt-head .tt-holiday')).toHaveCount(3);
+    const inner = await page.locator('.tt-panel').evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { x: cs.overflowX, y: cs.overflowY, wider: el.scrollWidth > el.clientWidth + 1 };
+    });
+    expect(inner).toEqual({ x: 'clip', y: 'clip', wider: false });
     await page.goto('/settings#holidays');
     await page.getByRole('button', { name: 'Remove E2E test break' }).click();
     await expect(page.getByRole('dialog')).toContainText('All 3 days');

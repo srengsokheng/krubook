@@ -100,21 +100,21 @@ export function Timetable() {
           })}
         </div>
       ) : (
-        <div className="panel table-wrap">
+        <div className="panel tt-panel">
           <div className="tt" style={{ ['--days' as any]: days.length, ['--hour' as any]: `${HOUR}px` }}>
             <div className="tt-head" />
             {days.map((d) => (
               <div key={d} className={`tt-head ${d === data.today ? 'today' : ''}`}>
                 <div className="eyebrow" style={{ color: 'inherit' }}>{weekdayName(weekday(d), lang)}</div>
                 <div className="d">{+d.slice(8)}</div>
+                {holidayOn(d) && <div className="tt-holiday" title={holidayOn(d)}>{holidayOn(d)}</div>}
               </div>
             ))}
             <div className="tt-times" style={{ height: hours * HOUR }}>
-              {Array.from({ length: hours + 1 }, (_, i) => <span key={i} style={{ top: i * HOUR }}>{String(first / 60 + i).padStart(2, '0')}:00</span>)}
+              {Array.from({ length: hours + 1 }, (_, i) => <span key={i} style={{ top: i * HOUR, transform: i === 0 ? 'translateY(3px)' : i === hours ? 'translateY(calc(-100% - 3px))' : undefined }}>{String(first / 60 + i).padStart(2, '0')}:00</span>)}
             </div>
             {days.map((d) => (
               <div key={d} className={`tt-col ${d === data.today ? 'today' : ''} ${holidayOn(d) ? 'holiday' : ''}`} style={{ height: hours * HOUR }}>
-                {holidayOn(d) && <div className="tt-holiday">{holidayOn(d)}</div>}
                 {data.ghosts.filter((g: any) => g.date === d).map((g: any, i: number) => (
                   <div key={`g${i}`} className="tt-ev ghost" style={{ ...pos(g), ['--c' as any]: g.color }} title={`${g.code} starts ${g.startsOn}`}>
                     <div className="code">{g.code}</div>
