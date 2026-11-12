@@ -75,6 +75,19 @@ test.describe('signed in', () => {
     await expect(page.getByText('E2E test break')).toHaveCount(0);
   });
 
+  test('holidays: a class still planned on a holiday is flagged on the timetable', async ({ page }) => {
+    const made = await (await page.request.post('/api/holidays', { data: { date: '2026-10-28', name: 'E2E strike day' } })).json();
+    await page.goto('/timetable?week=2026-10-26');
+    await expect(page.locator('.tt-head .tt-holiday', { hasText: 'E2E strike day' })).toContainText('No classes');
+    expect(await page.locator('.tt-ev.on-holiday').count()).toBeGreaterThan(0);
+    await expect(page.getByText('Still scheduled on a holiday:')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Check classes against holidays' })).toBeVisible();
+    await page.request.delete(`/api/holidays/${made.id}`);
+    await page.reload();
+    await expect(page.locator('.tt-ev.on-holiday')).toHaveCount(0);
+    await expect(page.getByText('Still scheduled on a holiday:')).toHaveCount(0);
+  });
+
   test('attendance: ticking a student saves, and the tick survives a reload', async ({ page }) => {
     await page.goto('/classes/1/attendance');
     const box = page.getByRole('checkbox', { name: /^0230002 / });

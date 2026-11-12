@@ -5,6 +5,7 @@ import { useI18n } from '../i18n.tsx';
 import { Dialog, Empty, ErrorNote, Field, Icon, Kind, Loading, Notice, useAction } from '../ui.tsx';
 import { SessionDialog } from '../SessionDialog.tsx';
 import { ProposalReview, type Proposal } from '../Proposal.tsx';
+import { HolidayCheck } from './Terms.tsx';
 import { addDays, formatDate, minutesOf, weekday, weekdayName } from '../../../shared/dates.ts';
 
 function useNarrow() {
@@ -37,6 +38,8 @@ export function Timetable() {
   const clash = useMemo(() => new Set<number>((data?.overlaps ?? []).flat()), [data]);
   // A holiday can cover several days (date to end_date); every day in it is marked.
   const holidayOn = (d: string) => holidays?.filter((h) => d >= h.date && d <= (h.end_date ?? h.date)).map((h) => (lang === 'km' && h.name_km) || h.name)[0];
+  // A class still planned on a holiday, unless the teacher marked it as taught on the holiday on purpose.
+  const stillOnHoliday = (s: any) => !!holidayOn(s.date) && s.status === 'planned' && !s.holiday_exception;
 
   if (error) return <div className="page"><ErrorNote error={error} retry={reload} /></div>;
   if (loading && !data) return <div className="page"><Loading rows={6} /></div>;
@@ -71,9 +74,22 @@ export function Timetable() {
 
       {data.overlaps.length > 0 && <Notice tone="bad">Double-booked this week: {data.overlaps.map(([a, b]: number[]) => { const x = data.sessions.find((s: any) => s.id === a), y = data.sessions.find((s: any) => s.id === b); return `${x.code} and ${y.code} on ${formatDate(x.date, lang)} ${x.start}`; }).join('; ')}.</Notice>}
 
+      {data.sessions.some(stillOnHoliday) && (
+        <Notice tone="warn">
+          <div className="stack" style={{ gap: 6 }}>
+            <span>
+              <b>Still scheduled on a holiday:</b>{' '}
+              {data.sessions.filter(stillOnHoliday).map((s: any) => `${s.code} ${formatDate(s.date, lang)} ${s.start} (${holidayOn(s.date)})`).join('; ')}.
+              {' '}Check the classes against holidays to cancel them. If you are teaching anyway, open the class and mark it as taught on the holiday.
+            </span>
+            <div className="no-print"><HolidayCheck onDone={reload} /></div>
+          </div>
+        </Notice>
+      )}
+
       <div className="row small muted no-print" style={{ gap: 14 }}>
         <span className="row" style={{ gap: 6 }}><Kind kind="lecture" /> <Kind kind="practice" /> <Kind kind="exam" /></span>
-        <span title="Dashed: not started yet · struck through: cancelled · red outline: double-booked">Dashed = not started · struck = cancelled · red = clash</span>
+        <span title="Dashed: not started yet · struck through: cancelled · red outline: double-booked · striped day: holiday">Dashed = not started · struck = cancelled · red = clash · striped = holiday, no classes</span>
       </div>
 
       {!data.sessions.length && !data.ghosts.length ? (
@@ -84,13 +100,13 @@ export function Timetable() {
             const list = items.filter((s: any) => s.date === d).sort((a: any, b: any) => a.start.localeCompare(b.start));
             return (
               <section key={d} className="panel">
-                <div className={`panel-head ${d === data.today ? 'marker' : ''}`}><h3>{formatDate(d, lang)}</h3>{holidayOn(d) && <span className="pill">{holidayOn(d)}</span>}</div>
+                <div className={`panel-head ${d === data.today ? 'marker' : ''}`}><h3>{formatDate(d, lang)}</h3>{holidayOn(d) && <span className="pill bad">No classes · {holidayOn(d)}</span>}</div>
                 {list.length ? <ul className="ledger">{list.map((s: any, i: number) => (
                   <li key={s.id ?? `g${i}`} onClick={() => s.id && setOpenId(s.id)} style={{ cursor: s.id ? 'pointer' : 'default' }}>
                     <span className="swatch" style={{ background: s.color }} />
                     <span className="when">{s.start}–{s.end}</span>
                     <div className="grow">
-                      <div className="row"><b className={`mono ${s.status === 'cancelled' ? 'strike' : ''}`}>{s.code}</b>{s.kind && <Kind kind={s.kind} />}{clash.has(s.id) && <span className="pill bad">clash</span>}</div>
+                      <div className="row"><b className={`mono ${s.status === 'cancelled' ? 'strike' : ''}`}>{s.code}</b>{s.kind && <Kind kind={s.kind} />}{clash.has(s.id) && <span className="pill bad">clash</span>}{s.id && stillOnHoliday(s) && <span className="pill warn">holiday</span>}</div>
                       <div className="small muted">{s.startsOn ? `Starts ${formatDate(s.startsOn, lang)}` : s.status === 'cancelled' ? s.note : s.part ?? s.checkpoint ?? s.course_name}</div>
                     </div>
                   </li>
@@ -107,7 +123,7 @@ export function Timetable() {
               <div key={d} className={`tt-head ${d === data.today ? 'today' : ''}`}>
                 <div className="eyebrow" style={{ color: 'inherit' }}>{weekdayName(weekday(d), lang)}</div>
                 <div className="d">{+d.slice(8)}</div>
-                {holidayOn(d) && <div className="tt-holiday" title={holidayOn(d)}>{holidayOn(d)}</div>}
+                {holidayOn(d) && <div className="tt-holiday" title={`Holiday: ${holidayOn(d)} — no classes`}><b>No classes</b><span>{holidayOn(d)}</span></div>}
               </div>
             ))}
             <div className="tt-times" style={{ height: hours * HOUR }}>
@@ -123,9 +139,9 @@ export function Timetable() {
                   </div>
                 ))}
                 {data.sessions.filter((s: any) => s.date === d).map((s: any) => (
-                  <button key={s.id} className={`tt-ev ${s.status} ${clash.has(s.id) ? 'clash' : ''} ${s.moved_from_id ? 'moved-here' : ''}`} style={{ ...pos(s), ['--c' as any]: s.color }} onClick={() => setOpenId(s.id)}
-                    title={`${s.code} ${s.course_name} ${s.start}–${s.end}`}>
-                    <div className="row" style={{ gap: 5, justifyContent: 'space-between' }}><span className="code">{s.code}</span><Kind kind={s.kind} /></div>
+                  <button key={s.id} className={`tt-ev ${s.status} ${clash.has(s.id) ? 'clash' : ''} ${s.moved_from_id ? 'moved-here' : ''} ${stillOnHoliday(s) ? 'on-holiday' : ''}`} style={{ ...pos(s), ['--c' as any]: s.color }} onClick={() => setOpenId(s.id)}
+                    title={stillOnHoliday(s) ? `${s.code} is still scheduled on a holiday (${holidayOn(s.date)}). Open it to cancel, or mark it as taught on the holiday.` : `${s.code} ${s.course_name} ${s.start}–${s.end}`}>
+                    <div className="row" style={{ gap: 5, justifyContent: 'space-between' }}><span className="code">{s.code}</span>{stillOnHoliday(s) ? <span className="kind holiday-flag">Holiday!</span> : <Kind kind={s.kind} />}</div>
                     <div className="t">{s.start}–{s.end}{s.status === 'completed' && ' ✓'}</div>
                     <div>{s.status === 'cancelled' ? s.note ?? 'Cancelled' : s.checkpoint ? <span className="marker">{s.checkpoint}</span> : s.part ?? s.activity.replace('_', ' ')}</div>
                     {s.is_makeup ? <div className="faint">Make-up</div> : null}

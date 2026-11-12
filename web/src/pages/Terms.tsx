@@ -115,7 +115,8 @@ export function TermDetail() {
 }
 
 /** Re-checks every active class against the holiday calendar; shows each class's proposal. */
-export function HolidayCheck() {
+/** Re-checks every class against the holiday calendar; `onDone` runs after a change is applied. */
+export function HolidayCheck({ onDone }: { onDone?: () => void } = {}) {
   const [results, setResults] = useState<any[] | null>(null);
   const [open, setOpen] = useState<any | null>(null);
   const { busy, run } = useAction();
@@ -125,7 +126,7 @@ export function HolidayCheck() {
       {results && (results.length ? (
         <ul className="ledger panel">{results.map((r) => <li key={r.classId}><span className="mono grow">{r.code}</span><span className="small">{r.proposal.changes.length} change(s)</span><button className="btn sm primary" onClick={() => setOpen(r.proposal)}>Review</button></li>)}</ul>
       ) : <Notice tone="ok">Every class already matches the holiday calendar.</Notice>)}
-      {open && <ProposalReview proposal={open} onClose={() => setOpen(null)} onDone={() => { setOpen(null); setResults((rs) => rs?.filter((x) => x.proposal.id !== open.id) ?? null); }} />}
+      {open && <ProposalReview proposal={open} onClose={() => setOpen(null)} onDone={() => { setOpen(null); setResults((rs) => rs?.filter((x) => x.proposal.id !== open.id) ?? null); onDone?.(); }} />}
     </div>
   );
 }

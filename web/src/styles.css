@@ -300,9 +300,18 @@ table.table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
 .tt-times span { position: absolute; right: 6px; transform: translateY(-50%); white-space: nowrap; font: 400 var(--fs-xs) var(--font-data); color: var(--ink-3); }
 .tt-col { position: relative; min-width: 0; border-right: 1px solid var(--rule); background-image: repeating-linear-gradient(to bottom, var(--rule) 0, var(--rule) 1px, transparent 1px, transparent var(--hour)); }
 .tt-col.today { background-color: color-mix(in srgb, var(--marker) 10%, transparent); }
-.tt-col.holiday { background-color: var(--surface-2); }
+.tt-col.holiday {
+  background-color: var(--surface-2);
+  background-image: repeating-linear-gradient(135deg, transparent 0 9px, color-mix(in srgb, var(--bad) 9%, transparent) 9px 11px),
+    repeating-linear-gradient(to bottom, var(--rule) 0, var(--rule) 1px, transparent 1px, transparent var(--hour));
+}
 .tt-holiday { margin-top: 4px; font-size: var(--fs-xs); font-weight: 500; color: var(--ink-2); background: var(--surface-2); border: 1px dashed var(--rule-strong); padding: 2px 6px; border-radius: var(--r-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tt-head.today .tt-holiday { color: var(--ink); }
+.tt-head .tt-holiday { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, transparent); background: var(--bad-soft); }
+.tt-head .tt-holiday b, .tt-head .tt-holiday span { display: block; overflow: hidden; text-overflow: ellipsis; }
+.tt-head .tt-holiday span { font-weight: 400; color: var(--ink-2); }
+.tt-ev.on-holiday { outline: 2px dashed var(--warn); outline-offset: 1px; }
+.kind.holiday-flag { color: var(--warn); border-color: currentColor; }
 .tt-ev {
   position: absolute; left: 3px; right: 3px; overflow: hidden; border-radius: var(--r-sm); padding: 4px 7px 4px 9px;
   background: color-mix(in srgb, var(--c) 13%, var(--surface)); border: 1px solid color-mix(in srgb, var(--c) 35%, transparent);
@@ -320,6 +329,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
   .tt-ev .kind.lecture::before { content: 'L'; }
   .tt-ev .kind.practice::before { content: 'P'; }
   .tt-ev .kind.exam::before { content: 'E'; }
+  .tt-ev .kind.holiday-flag::before { content: '!'; }
 }
 .tt-ev .code { font: 600 var(--fs-sm) var(--font-data); }
 .tt-ev .t { font-family: var(--font-data); color: var(--ink-2); }
