@@ -310,8 +310,6 @@ table.table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
 .tt-head .tt-holiday { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, transparent); background: var(--bad-soft); }
 .tt-head .tt-holiday b, .tt-head .tt-holiday span { display: block; overflow: hidden; text-overflow: ellipsis; }
 .tt-head .tt-holiday span { font-weight: 400; color: var(--ink-2); }
-.tt-ev.on-holiday { outline: 2px dashed var(--warn); outline-offset: 1px; }
-.kind.holiday-flag { color: var(--warn); border-color: currentColor; }
 .tt-ev {
   position: absolute; left: 3px; right: 3px; overflow: hidden; border-radius: var(--r-sm); padding: 4px 7px 4px 9px;
   background: color-mix(in srgb, var(--c) 13%, var(--surface)); border: 1px solid color-mix(in srgb, var(--c) 35%, transparent);
@@ -329,7 +327,6 @@ table.table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
   .tt-ev .kind.lecture::before { content: 'L'; }
   .tt-ev .kind.practice::before { content: 'P'; }
   .tt-ev .kind.exam::before { content: 'E'; }
-  .tt-ev .kind.holiday-flag::before { content: '!'; }
 }
 .tt-ev .code { font: 600 var(--fs-sm) var(--font-data); }
 .tt-ev .t { font-family: var(--font-data); color: var(--ink-2); }
