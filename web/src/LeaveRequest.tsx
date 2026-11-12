@@ -2,14 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { useApi } from './api.ts';
 import { usePref } from './prefs.ts';
 import { Dialog, Field, Icon, Kind, Notice, useToast } from './ui.tsx';
-import { DEFAULT_LEAVE_TEMPLATE, LEAVE_REASONS, leaveMessage } from '../../shared/leave.ts';
+import { DEFAULT_LEAVE_TEMPLATE, LEAVE_REASONS, defaultSubject, leaveMessage } from '../../shared/leave.ts';
 import { addDays, startOfWeek } from '../../shared/dates.ts';
 
 // Ask for leave: choose the day and which of its classes, type or pick a reason, and KruBook writes
 // the message in the teacher's usual format, ready to copy or send with Telegram. The name and the
 // template are remembered for next time (Settings are not needed: "Edit template" is here).
 
-type Cls = { id: number; code: string; start: string; end: string; kind: string; status: string };
+type Cls = { id: number; code: string; start: string; end: string; kind: string; status: string; courseId: number; courseName: string; courseCode: string };
 
 export function LeaveRequest({ date: initialDate, sessionIds, onClose }: { date: string; sessionIds?: number[]; onClose: () => void }) {
   const [date, setDate] = useState(initialDate);
@@ -17,6 +17,10 @@ export function LeaveRequest({ date: initialDate, sessionIds, onClose }: { date:
   const { data: me } = useApi<any>('/auth/me');
   const [savedName, setSavedName] = usePref<string>('leave.name', '');
   const [template, setTemplate] = usePref<string>('leave.template', '');
+  // Short subject name per course (e.g. C++, WED), remembered once set.
+  const [subjectsRaw, setSubjectsRaw] = usePref<string>('leave.subjects', '{}');
+  const subjects: Record<string, string> = useMemo(() => { try { return JSON.parse(subjectsRaw) ?? {}; } catch { return {}; } }, [subjectsRaw]);
+  const setSubject = (courseId: number, v: string) => setSubjectsRaw(JSON.stringify({ ...subjects, [courseId]: v }));
   const [name, setName] = useState('');
   const [reason, setReason] = useState('');
   const [picked, setPicked] = useState<number[] | null>(sessionIds ?? null);
@@ -25,13 +29,15 @@ export function LeaveRequest({ date: initialDate, sessionIds, onClose }: { date:
 
   const classes: Cls[] = useMemo(() => (week?.sessions ?? [])
     .filter((s: any) => s.date === date && s.status !== 'cancelled' && s.status !== 'moved')
-    .map((s: any) => ({ id: s.id, code: s.code, start: s.start, end: s.end, kind: s.kind, status: s.status }))
+    .map((s: any) => ({ id: s.id, code: s.code, start: s.start, end: s.end, kind: s.kind, status: s.status, courseId: s.course_id, courseName: s.course_name, courseCode: s.course_code }))
     .sort((a: Cls, b: Cls) => a.start.localeCompare(b.start)), [week, date]);
   // Until the teacher picks, every class of the day is selected.
   const chosen = classes.filter((c) => (picked ?? classes.map((x) => x.id)).includes(c.id));
   useEffect(() => { if (!name && (savedName || me?.user?.name)) setName(savedName || me.user.name); }, [savedName, me, name]);
 
-  const text = chosen.length && reason.trim() ? leaveMessage({ template, name, date, classes: chosen, reason }) : '';
+  const subjectOf = (c: Cls) => subjects[c.courseId] ?? defaultSubject({ name: c.courseName, code: c.courseCode });
+  const courses = [...new Map(chosen.map((c) => [c.courseId, c])).values()];
+  const text = chosen.length && reason.trim() ? leaveMessage({ template, name, date, classes: chosen.map((c) => ({ ...c, subject: subjectOf(c) })), reason }) : '';
   const copy = async () => {
     try { await navigator.clipboard.writeText(text); toast('Copied — paste it into your message'); }
     catch { toast('Select the text and copy it', 'bad'); }
@@ -62,6 +68,15 @@ export function LeaveRequest({ date: initialDate, sessionIds, onClose }: { date:
             </div>
           ) : <span className="faint small">No classes on this day.</span>}
         </Field>
+        {courses.length > 0 && (
+          <div className="form-grid">
+            {courses.map((c) => (
+              <Field key={c.courseId} label={`Subject for ${c.courseName}`} hint="As you write it in the message, e.g. C++ or WED. Remembered.">
+                <input aria-label={`Subject for ${c.courseName}`} value={subjectOf(c)} onChange={(e) => setSubject(c.courseId, e.target.value)} />
+              </Field>
+            ))}
+          </div>
+        )}
         <Field label="Reason (written after ដោយសារ)">
           <input id="leave-reason" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. ខ្ញុំមានការប្រឡងថ្នាក់អនុបណ្ឌិត (Master)" />
         </Field>
@@ -78,7 +93,7 @@ export function LeaveRequest({ date: initialDate, sessionIds, onClose }: { date:
           {editing && (
             <div className="stack" style={{ gap: 6, marginTop: 6 }}>
               <textarea aria-label="Message template" rows={4} value={template || DEFAULT_LEAVE_TEMPLATE} onChange={(e) => setTemplate(e.target.value)} />
-              <span className="faint xs">Placeholders: {'{name} {day} {date} {times} {classes} {reason}'}. Classes back to back become one time range. Saved for next time.</span>
+              <span className="faint xs">Placeholders: {'{name} {subject} {date} {times} {classes} {reason} {day}'} ({'{day}'} is the weekday). Classes back to back become one time range. Saved for next time.</span>
               {template && <button type="button" className="btn sm" style={{ alignSelf: 'flex-start' }} onClick={() => setTemplate('')}>Back to the standard template</button>}
             </div>
           )}

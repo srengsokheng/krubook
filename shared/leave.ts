@@ -1,13 +1,14 @@
 // The message a teacher sends to ask for leave from some classes, filled in from a template:
 //
 //   ជម្រាបសួរលោកគ្រូ ខ្ញុំសូមអនុញ្ញាតច្បាប់
-//   SRENG SOKHENG FRI 13-11-2026 (2:45 PM - 5:15 PM ONLY)
+//   SRENG SOKHENG C++ 13-11-2026 (2:45 PM - 5:15 PM ONLY)
 //   ដោយសារខ្ញុំមានការប្រឡងថ្នាក់អនុបណ្ឌិត (Master)។ សូមអរគុណ ។
 //
-// Placeholders: {name} {day} {date} {times} {classes} {reason}. Classes that follow each other
+// Placeholders: {name} {subject} {date} {times} {classes} {reason} {day}. {subject} is the short name
+// of the subject (e.g. C++, WED), one per course of the chosen classes; {day} is the weekday. Classes that follow each other
 // without a break are written as one time range.
 
-export const DEFAULT_LEAVE_TEMPLATE = 'ជម្រាបសួរលោកគ្រូ ខ្ញុំសូមអនុញ្ញាតច្បាប់\n{name} {day} {date} ({times} ONLY)\nដោយសារ{reason}។ សូមអរគុណ ។';
+export const DEFAULT_LEAVE_TEMPLATE = 'ជម្រាបសួរលោកគ្រូ ខ្ញុំសូមអនុញ្ញាតច្បាប់\n{name} {subject} {date} ({times} ONLY)\nដោយសារ{reason}។ សូមអរគុណ ។';
 
 /** Common reasons, in Khmer as they go into the message, with an English hint. */
 export const LEAVE_REASONS: Array<{ km: string; en: string }> = [
@@ -38,14 +39,21 @@ export function timeRanges(classes: Array<{ start: string; end: string }>): Arra
   return out;
 }
 
-export function leaveMessage(o: { template?: string | null; name: string; date: string; classes: Array<{ code: string; start: string; end: string }>; reason: string }): string {
+/** The short subject name to start from: "C++" for a C++ course, otherwise the course code. */
+export function defaultSubject(course: { name?: string | null; code?: string | null }): string {
+  if (/c\+\+/i.test(course.name ?? '')) return 'C++';
+  return (course.code || course.name || '').trim();
+}
+
+export function leaveMessage(o: { template?: string | null; name: string; date: string; classes: Array<{ code: string; start: string; end: string; subject?: string }>; reason: string }): string {
   const [y, mo, d] = o.date.split('-');
   const day = DAYS[new Date(`${o.date}T00:00:00Z`).getUTCDay()]!;
   const times = timeRanges(o.classes).map((r) => `${time12(r.start)} - ${time12(r.end)}`).join(', ');
   const classes = [...o.classes].sort((a, b) => a.start.localeCompare(b.start)).map((c) => c.code).join(', ');
+  const subject = [...new Set([...o.classes].sort((a, b) => a.start.localeCompare(b.start)).map((c) => (c.subject ?? '').trim()).filter(Boolean))].join(' / ');
   const fill: Record<string, string> = {
-    name: o.name.trim().toUpperCase(), day, date: `${d}-${mo}-${y}`, times, classes,
+    name: o.name.trim().toUpperCase(), subject, day, date: `${d}-${mo}-${y}`, times, classes,
     reason: o.reason.trim().replace(/[។.\s]+$/u, ''),
   };
-  return (o.template?.trim() ? o.template : DEFAULT_LEAVE_TEMPLATE).replace(/\{(name|day|date|times|classes|reason)\}/g, (_, k: string) => fill[k] ?? '');
+  return (o.template?.trim() ? o.template : DEFAULT_LEAVE_TEMPLATE).replace(/\{(name|subject|day|date|times|classes|reason)\}/g, (_, k: string) => fill[k] ?? '');
 }

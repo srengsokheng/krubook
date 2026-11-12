@@ -97,13 +97,16 @@ test.describe('signed in', () => {
     await boxes.first().uncheck();
     await page.locator('#leave-name').fill('Sreng Sokheng');
     await page.getByRole('button', { name: 'ខ្ញុំមានការប្រឡងថ្នាក់អនុបណ្ឌិត (Master)' }).click();
-    await expect(page.locator('#leave-text')).toHaveValue('ជម្រាបសួរលោកគ្រូ ខ្ញុំសូមអនុញ្ញាតច្បាប់\nSRENG SOKHENG MON 26-10-2026 (1:30 PM - 2:30 PM ONLY)\nដោយសារខ្ញុំមានការប្រឡងថ្នាក់អនុបណ្ឌិត (Master)។ សូមអរគុណ ។');
+    // The subject goes where the teacher writes it (e.g. WED for Web Development), and is remembered.
+    await page.getByLabel(/^Subject for /).fill('WED');
+    await expect(page.locator('#leave-text')).toHaveValue('ជម្រាបសួរលោកគ្រូ ខ្ញុំសូមអនុញ្ញាតច្បាប់\nSRENG SOKHENG WED 26-10-2026 (1:30 PM - 2:30 PM ONLY)\nដោយសារខ្ញុំមានការប្រឡងថ្នាក់អនុបណ្ឌិត (Master)។ សូមអរគុណ ។');
     await expect(page.getByRole('link', { name: 'Send with Telegram' })).toHaveAttribute('href', /t\.me\/share/);
     await page.getByRole('button', { name: 'Close', exact: true }).last().click();
     // From a class itself, that class is chosen.
     await page.locator('.tt-ev', { hasText: 'SW43' }).first().click();
     await page.getByRole('dialog').getByRole('button', { name: 'Ask for leave' }).click();
     await expect(page.getByRole('dialog').getByRole('checkbox', { checked: true })).toHaveCount(1);
+    await expect(page.getByLabel(/^Subject for /)).toHaveValue('WED');
   });
 
   test('attendance: ticking a student saves, and the tick survives a reload', async ({ page }) => {
@@ -286,7 +289,7 @@ test.describe('signed in', () => {
     const second = page.getByRole('region', { name: 'Slide 2' });
     await second.locator('textarea').first().fill('If statements');
     await page.getByRole('button', { name: 'Save', exact: true }).click();
-    await expect(page.getByText('Saved')).toBeVisible();
+    await expect(page.getByText('Saved', { exact: true })).toBeVisible();
     const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download PowerPoint' }).click()]);
     expect(dl.suggestedFilename()).toBe('Control Statements.pptx');
   });

@@ -206,6 +206,8 @@ export function buildRouter(holder: DBHolder): Router {
     // The leave-request message: its template and the name written in it.
     [/^leave\.template$/, (v) => typeof v === 'string' && v.length <= 2000],
     [/^leave\.name$/, (v) => typeof v === 'string' && v.length <= 100],
+    // Short subject name per course for the message, as JSON {courseId: name}.
+    [/^leave\.subjects$/, (v) => typeof v === 'string' && v.length <= 2000],
   ];
   const readPrefs = (db: DB, u: User): Record<string, unknown> => {
     try { return JSON.parse(getSetting(db, u.id, 'prefs', '{}')); } catch { return {}; }
@@ -725,7 +727,7 @@ export function buildRouter(holder: DBHolder): Router {
     const sc = classScope(u);
     const sessions = db.all(
       `SELECT s.id, s.class_id, s.date, s.start_time AS start, s.end_time AS "end", s.kind, s.activity, s.status, s.checkpoint, s.is_makeup, s.moved_from_id, s.note, s.part_id, s.week, s.holiday_exception,
-              c.code, c.room AS class_room, co.name AS course_name, co.color
+              c.code, c.course_id, c.room AS class_room, co.name AS course_name, co.code AS course_code, co.color
          FROM sessions s JOIN classes c ON c.id = s.class_id JOIN courses co ON co.id = c.course_id
         WHERE ${sc.where} AND s.date BETWEEN ? AND ? AND c.status <> 'archived' ORDER BY s.date, s.start_time`,
       ...sc.params, from, to,
