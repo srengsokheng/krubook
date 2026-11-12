@@ -203,6 +203,9 @@ export function buildRouter(holder: DBHolder): Router {
     [/^pageSize\.[a-zA-Z]{1,30}$/, (v) => PAGE_SIZES.includes(Number(v))],
     [/^sort\.[a-zA-Z]{1,30}$/, (v) => typeof v === 'string' && /^[a-zA-Z_-]{1,30}$/.test(v)],
     [/^view\.[a-zA-Z]{1,30}$/, (v) => typeof v === 'string' && /^[a-zA-Z_-]{1,30}$/.test(v)],
+    // The leave-request message: its template and the name written in it.
+    [/^leave\.template$/, (v) => typeof v === 'string' && v.length <= 2000],
+    [/^leave\.name$/, (v) => typeof v === 'string' && v.length <= 100],
   ];
   const readPrefs = (db: DB, u: User): Record<string, unknown> => {
     try { return JSON.parse(getSetting(db, u.id, 'prefs', '{}')); } catch { return {}; }

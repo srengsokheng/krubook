@@ -4,6 +4,7 @@ import { api, useApi } from './api.ts';
 import { CheckIn } from './CheckIn.tsx';
 import { D, Dialog, Field, Kind, Notice, SessionStatus, useAction } from './ui.tsx';
 import { ProposalReview, type Proposal } from './Proposal.tsx';
+import { LeaveRequest } from './LeaveRequest.tsx';
 
 export interface SessionLike {
   id: number;
@@ -31,6 +32,7 @@ type Mode = 'view' | 'cancel' | 'move';
 /** Actions for one scheduled session. Changes that affect the plan open a proposal for review. */
 export function SessionDialog({ session, today, onClose, onChanged }: { session: SessionLike; today: string; onClose: () => void; onChanged: () => void }) {
   const [mode, setMode] = useState<Mode>('view');
+  const [leave, setLeave] = useState(false);
   const [reason, setReason] = useState('');
   const start = session.start ?? session.start_time ?? '';
   const end = session.end ?? session.end_time ?? '';
@@ -51,6 +53,7 @@ export function SessionDialog({ session, today, onClose, onChanged }: { session:
   };
 
   if (proposal) return <ProposalReview proposal={proposal} onClose={() => { setProposal(null); onClose(); }} onDone={() => { onChanged(); setProposal(null); onClose(); }} />;
+  if (leave && session.id) return <LeaveRequest date={session.date} sessionIds={[session.id]} onClose={onClose} />;
 
   return (
     <Dialog title={<span className="row"><span className="mono">{session.code}</span><Kind kind={session.kind} /><SessionStatus status={session.status} /></span>} onClose={onClose}
@@ -58,6 +61,7 @@ export function SessionDialog({ session, today, onClose, onChanged }: { session:
         <>
           {session.status === 'planned' && <button className="btn danger" onClick={() => setMode('cancel')}>Cancel session</button>}
           {session.status === 'planned' && <button className="btn" onClick={() => setMode('move')}>Move</button>}
+          {session.status === 'planned' && <button className="btn" onClick={() => setLeave(true)}>Ask for leave</button>}
           {(session.status === 'cancelled' || session.status === 'skipped') && <button className="btn" disabled={busy} onClick={() => run(() => api(`/sessions/${session.id}/restore`, { method: 'POST' }), 'Session restored').then((r) => after(r, ''))}>Restore session</button>}
           {session.status === 'planned' && session.date <= today && <Link className="btn primary" to={`/classes/${classId}/plan?session=${session.id}`} onClick={onClose}>Record what was taught</Link>}
           {session.status === 'planned' && <Link className="btn" to={`/classes/${classId}/attendance?session=${session.id}`} onClick={onClose}>Attendance</Link>}

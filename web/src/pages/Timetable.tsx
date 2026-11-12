@@ -6,6 +6,7 @@ import { Dialog, Empty, ErrorNote, Field, Icon, Kind, Loading, Notice, useAction
 import { SessionDialog } from '../SessionDialog.tsx';
 import { ProposalReview, type Proposal } from '../Proposal.tsx';
 import { HolidayCheck } from './Terms.tsx';
+import { LeaveRequest, tomorrow } from '../LeaveRequest.tsx';
 import { addDays, formatDate, minutesOf, weekday, weekdayName } from '../../../shared/dates.ts';
 
 function useNarrow() {
@@ -27,6 +28,7 @@ export function Timetable() {
   const { data: holidays } = useApi<any[]>('/holidays');
   const [openId, setOpenId] = useState<number | null>(null);
   const [adding, setAdding] = useState(false);
+  const [leave, setLeave] = useState(false);
   const narrow = useNarrow();
 
   const days = useMemo(() => {
@@ -68,6 +70,7 @@ export function Timetable() {
           <button className="btn" onClick={() => go(addDays(data.from, 7))} aria-label="Next week"><Icon name="right" /></button>
           <input type="date" aria-label="Jump to week" value={data.from} onChange={(e) => e.target.value && go(e.target.value)} style={{ width: 150 }} />
           <button className="btn" onClick={() => setAdding(true)}><Icon name="plus" />Add session</button>
+          <button className="btn" onClick={() => setLeave(true)}>Ask for leave</button>
           <button className="btn" onClick={() => window.print()}><Icon name="printer" />{t('Print')}</button>
         </div>
       </div>
@@ -148,6 +151,7 @@ export function Timetable() {
       )}
 
       {open && <SessionDialog session={open} today={data.today} onClose={() => setOpenId(null)} onChanged={reload} />}
+      {leave && <LeaveRequest date={tomorrow(data.today)} onClose={() => setLeave(false)} />}
       {adding && <AddSession defaultDate={data.today >= data.from && data.today <= data.to ? data.today : data.from} onClose={() => setAdding(false)} onDone={reload} />}
     </div>
   );

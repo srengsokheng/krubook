@@ -88,6 +88,24 @@ test.describe('signed in', () => {
     await expect(page.locator('.tt-ev.on-holiday')).toHaveCount(0);
   });
 
+  test('ask for leave: pick the day, classes and reason; the message is written in the usual format', async ({ page }) => {
+    await page.goto('/timetable?week=2026-10-26');
+    await page.getByRole('button', { name: 'Ask for leave' }).click();
+    await page.locator('#leave-date').fill('2026-10-26');
+    const boxes = page.getByRole('dialog').getByRole('checkbox');
+    await expect(boxes).toHaveCount(2); // Mon 26 Oct: ASL3 07:30 and SW43 13:30
+    await boxes.first().uncheck();
+    await page.locator('#leave-name').fill('Sreng Sokheng');
+    await page.getByRole('button', { name: 'ខ្ញុំមានការប្រឡងថ្នាក់អនុបណ្ឌិត (Master)' }).click();
+    await expect(page.locator('#leave-text')).toHaveValue('ជម្រាបសួរលោកគ្រូ ខ្ញុំសូមអនុញ្ញាតច្បាប់\nSRENG SOKHENG MON 26-10-2026 (1:30 PM - 2:30 PM ONLY)\nដោយសារខ្ញុំមានការប្រឡងថ្នាក់អនុបណ្ឌិត (Master)។ សូមអរគុណ ។');
+    await expect(page.getByRole('link', { name: 'Send with Telegram' })).toHaveAttribute('href', /t\.me\/share/);
+    await page.getByRole('button', { name: 'Close', exact: true }).last().click();
+    // From a class itself, that class is chosen.
+    await page.locator('.tt-ev', { hasText: 'SW43' }).first().click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Ask for leave' }).click();
+    await expect(page.getByRole('dialog').getByRole('checkbox', { checked: true })).toHaveCount(1);
+  });
+
   test('attendance: ticking a student saves, and the tick survives a reload', async ({ page }) => {
     await page.goto('/classes/1/attendance');
     const box = page.getByRole('checkbox', { name: /^0230002 / });
