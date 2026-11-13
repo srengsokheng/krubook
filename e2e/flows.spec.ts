@@ -92,7 +92,7 @@ test.describe('signed in', () => {
     await page.goto('/timetable?week=2026-10-26');
     await page.getByRole('button', { name: 'Ask for leave' }).click();
     await page.locator('#leave-date').fill('2026-10-26');
-    const boxes = page.getByRole('dialog').getByRole('checkbox');
+    const boxes = page.getByRole('dialog').getByRole('checkbox', { name: /^Leave from / });
     await expect(boxes).toHaveCount(2); // Mon 26 Oct: ASL3 07:30 and SW43 13:30
     await boxes.first().uncheck();
     await page.locator('#leave-name').fill('Sreng Sokheng');
@@ -105,8 +105,17 @@ test.describe('signed in', () => {
     // From a class itself, that class is chosen.
     await page.locator('.tt-ev', { hasText: 'SW43' }).first().click();
     await page.getByRole('dialog').getByRole('button', { name: 'Ask for leave' }).click();
-    await expect(page.getByRole('dialog').getByRole('checkbox', { checked: true })).toHaveCount(1);
+    await expect(page.getByRole('dialog').getByRole('checkbox', { name: /^Leave from /, checked: true })).toHaveCount(1);
     await expect(page.getByLabel(/^Subject for /)).toHaveValue('WED');
+    // Copying the message also takes the class off: struck on the timetable as leave, out of pay.
+    await expect(page.locator('#leave-markoff')).toBeChecked();
+    await page.getByRole('button', { name: 'ខ្ញុំមានការប្រឡងថ្នាក់អនុបណ្ឌិត (Master)' }).click();
+    await page.getByRole('button', { name: 'Copy message' }).click();
+    await expect(page.getByText('SW43 marked as on leave')).toBeVisible();
+    await page.getByRole('button', { name: 'Close', exact: true }).last().click();
+    await expect(page.locator('.tt-ev.cancelled', { hasText: 'Leave: ខ្ញុំមានការប្រឡងថ្នាក់អនុបណ្ឌិត' })).toHaveCount(1);
+    const pay = await (await page.request.get('/api/pay/period?from=2026-10-26&to=2026-10-26')).json();
+    expect(JSON.stringify(pay)).toContain('Leave: ');
   });
 
   test('attendance: ticking a student saves, and the tick survives a reload', async ({ page }) => {

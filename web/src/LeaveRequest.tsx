@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useApi } from './api.ts';
+import { api, useApi } from './api.ts';
 import { usePref } from './prefs.ts';
 import { Dialog, Field, Icon, Kind, Notice, useToast } from './ui.tsx';
 import { DEFAULT_LEAVE_TEMPLATE, LEAVE_REASONS, defaultSubject, leaveMessage } from '../../shared/leave.ts';
@@ -11,7 +11,7 @@ import { addDays, startOfWeek } from '../../shared/dates.ts';
 
 type Cls = { id: number; code: string; start: string; end: string; kind: string; status: string; courseId: number; courseName: string; courseCode: string };
 
-export function LeaveRequest({ date: initialDate, sessionIds, onClose }: { date: string; sessionIds?: number[]; onClose: () => void }) {
+export function LeaveRequest({ date: initialDate, sessionIds, onClose, onMarked }: { date: string; sessionIds?: number[]; onClose: () => void; onMarked?: () => void }) {
   const [date, setDate] = useState(initialDate);
   const { data: week } = useApi<any>(`/timetable?from=${startOfWeek(date)}`);
   const { data: me } = useApi<any>('/auth/me');
@@ -25,10 +25,13 @@ export function LeaveRequest({ date: initialDate, sessionIds, onClose }: { date:
   const [reason, setReason] = useState('');
   const [picked, setPicked] = useState<number[] | null>(sessionIds ?? null);
   const [editing, setEditing] = useState(false);
+  // Asking for leave also takes the classes off: cancelled as "Leave: <reason>", out of pay.
+  const [markOff, setMarkOff] = useState(true);
+  const [marked, setMarked] = useState<string | null>(null);
   const toast = useToast();
 
   const classes: Cls[] = useMemo(() => (week?.sessions ?? [])
-    .filter((s: any) => s.date === date && s.status !== 'cancelled' && s.status !== 'moved')
+    .filter((s: any) => s.date === date && s.status === 'planned')
     .map((s: any) => ({ id: s.id, code: s.code, start: s.start, end: s.end, kind: s.kind, status: s.status, courseId: s.course_id, courseName: s.course_name, courseCode: s.course_code }))
     .sort((a: Cls, b: Cls) => a.start.localeCompare(b.start)), [week, date]);
   // Until the teacher picks, every class of the day is selected.
@@ -38,17 +41,33 @@ export function LeaveRequest({ date: initialDate, sessionIds, onClose }: { date:
   const subjectOf = (c: Cls) => subjects[c.courseId] ?? defaultSubject({ name: c.courseName, code: c.courseCode });
   const courses = [...new Map(chosen.map((c) => [c.courseId, c])).values()];
   const text = chosen.length && reason.trim() ? leaveMessage({ template, name, date, classes: chosen.map((c) => ({ ...c, subject: subjectOf(c) })), reason }) : '';
+  // Marks the chosen classes as on leave once, the first time the message is copied or sent.
+  const takeOff = async () => {
+    if (!markOff || marked !== null || !chosen.length) return;
+    const key = chosen.map((c) => c.id).join(',');
+    setMarked(key);
+    try {
+      const r = await api<{ marked: Array<{ code: string }>; skipped: Array<{ code: string; reason: string }> }>('/leave', { body: { sessionIds: chosen.map((c) => c.id), reason } });
+      if (r.marked.length) toast(`${r.marked.map((m) => m.code).join(', ')} marked as on leave: off the timetable and pay`);
+      for (const k of r.skipped) toast(`${k.code} not changed: ${k.reason}`, 'bad');
+      onMarked?.();
+    } catch (e) {
+      setMarked(null);
+      toast(`The classes were not marked as on leave: ${(e as Error).message}`, 'bad');
+    }
+  };
   const copy = async () => {
     try { await navigator.clipboard.writeText(text); toast('Copied — paste it into your message'); }
     catch { toast('Select the text and copy it', 'bad'); }
     if (name.trim() && name !== savedName) setSavedName(name.trim());
+    await takeOff();
   };
   const toggle = (id: number) => setPicked((p) => { const cur = p ?? classes.map((c) => c.id); return cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]; });
 
   return (
     <Dialog wide title="Ask for leave" onClose={onClose} footer={<>
       <button className="btn" onClick={onClose}>Close</button>
-      {text && <a className="btn" href={`https://t.me/share/url?url=${encodeURIComponent(' ')}&text=${encodeURIComponent(text)}`} target="_blank" rel="noreferrer">Send with Telegram</a>}
+      {text && <a className="btn" href={`https://t.me/share/url?url=${encodeURIComponent(' ')}&text=${encodeURIComponent(text)}`} target="_blank" rel="noreferrer" onClick={() => void takeOff()}>Send with Telegram</a>}
       <button className="btn primary" disabled={!text} onClick={() => void copy()}><Icon name="check" />Copy message</button>
     </>}>
       <div className="stack">
@@ -83,6 +102,11 @@ export function LeaveRequest({ date: initialDate, sessionIds, onClose }: { date:
         <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
           {LEAVE_REASONS.map((r) => <button key={r.km} type="button" className={`btn sm ${reason === r.km ? 'primary' : ''}`} title={r.en} onClick={() => setReason(r.km)}>{r.km}</button>)}
         </div>
+        <label className="check small">
+          <input id="leave-markoff" type="checkbox" checked={markOff} disabled={marked !== null} onChange={(e) => setMarkOff(e.target.checked)} />
+          {marked !== null ? 'These classes are marked as on leave: off the timetable and out of pay. To undo, open a class and restore it.'
+            : 'When I copy or send the message, mark these classes as on leave: they come off the timetable and are not paid.'}
+        </label>
         {text ? (
           <Field label="Message">
             <textarea id="leave-text" readOnly rows={4} value={text} onFocus={(e) => e.currentTarget.select()} />

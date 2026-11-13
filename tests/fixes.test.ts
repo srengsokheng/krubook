@@ -142,6 +142,7 @@ describe('pay breakdown', () => {
         { name: 'School closed', sessions: 1, minutes: 90, pay: 13.5 },
         { name: 'King Norodom Sihamoni’s Coronation Day', sessions: 1, minutes: 90, pay: 13.5 },
       ],
+      leave: { sessions: 0, minutes: 0, pay: 0 },
       cancelled: { sessions: 1, pay: 13.5 },
       lateCuts: { sessions: 1, pay: 13.5 },
       notRecorded: { sessions: 1, pay: 13.5 },

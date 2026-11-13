@@ -151,7 +151,7 @@ export function Timetable() {
       )}
 
       {open && <SessionDialog session={open} today={data.today} onClose={() => setOpenId(null)} onChanged={reload} />}
-      {leave && <LeaveRequest date={tomorrow(data.today)} onClose={() => setLeave(false)} />}
+      {leave && <LeaveRequest date={tomorrow(data.today)} onClose={() => setLeave(false)} onMarked={reload} />}
       {adding && <AddSession defaultDate={data.today >= data.from && data.today <= data.to ? data.today : data.from} onClose={() => setAdding(false)} onDone={reload} />}
     </div>
   );

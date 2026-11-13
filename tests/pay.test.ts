@@ -412,3 +412,29 @@ describe('check-in reminders, links, automatic records and payslips', () => {
     expect((await call('GET', '/pay/payslip/2026-11')).body.totals).toMatchObject({ paid: 15, difference: -2 });
   });
 });
+
+describe('leave', () => {
+  it('takes the chosen classes off: cancelled as leave, not expected or paid, listed as On leave', async () => {
+    hourly(10);
+    const a = session(classA, '2026-10-30', '13:00', '14:30');
+    const b = session(classB, '2026-10-30', '14:45', '16:15');
+    const c = session(classA, '2026-10-31', '13:00', '14:30');
+    const before = payOverview(db, u, '2026').months.find((m: any) => m.month === '2026-11')!;
+    const r = await call('POST', '/leave', { sessionIds: [a, b], reason: 'ខ្ញុំមានការប្រឡងថ្នាក់អនុបណ្ឌិត (Master)។ ' });
+    expect(r.status).toBe(200);
+    expect(r.body.marked.map((m: any) => m.code)).toEqual(['A1', 'B1']);
+    expect(db.get('SELECT status, note FROM sessions WHERE id = ?', a)).toEqual({ status: 'cancelled', note: 'Leave: ខ្ញុំមានការប្រឡងថ្នាក់អនុបណ្ឌិត (Master)' });
+    expect(db.get('SELECT status FROM sessions WHERE id = ?', c)!.status).toBe('planned');
+
+    const after = payOverview(db, u, '2026').months.find((m: any) => m.month === '2026-11')!;
+    expect(after.expectedTotal).toBe(before.expectedTotal - 30); // two 1.5 h classes at $10/h
+    expect(after.breakdown.leave).toEqual({ sessions: 2, minutes: 180, pay: 30 });
+    expect(after.breakdown.cancelled.sessions).toBe(0);
+
+    // Already off: reported, not changed again. Restoring a class undoes the leave.
+    expect((await call('POST', '/leave', { sessionIds: [a], reason: 'x' })).body).toMatchObject({ marked: [], skipped: [{ code: 'A1', reason: 'already off' }] });
+    expect((await call('POST', `/sessions/${a}/restore`, {})).status).toBe(200);
+    expect(payOverview(db, u, '2026').months.find((m: any) => m.month === '2026-11')!.breakdown.leave).toEqual({ sessions: 1, minutes: 90, pay: 15 });
+    expect((await call('POST', '/leave', { sessionIds: [] })).status).toBe(422);
+  });
+});

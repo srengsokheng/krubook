@@ -136,12 +136,13 @@ export interface MonthSummary {
 }
 
 // Where a month's money goes: the full timetable at full rate, minus classes lost to holidays (by
-// holiday), other cancelled classes, late cuts, classes not recorded yet and classes still to come,
+// holiday), classes the teacher took leave from, other cancelled classes, late cuts, classes not recorded yet and classes still to come,
 // plus adjustments. Whatever is left over (minutes recorded shorter than scheduled, amounts frozen
 // on an approved statement) is "other", so the steps always add up to Actual.
 export interface Breakdown {
   timetable: { sessions: number; minutes: number; pay: number };
   holidays: Array<{ name: string; sessions: number; minutes: number; pay: number }>;
+  leave: { sessions: number; minutes: number; pay: number };
   cancelled: { sessions: number; pay: number };
   lateCuts: { sessions: number; pay: number };
   notRecorded: { sessions: number; pay: number };
@@ -152,7 +153,7 @@ export interface Breakdown {
 }
 
 function newBreakdown(): Breakdown {
-  return { timetable: { sessions: 0, minutes: 0, pay: 0 }, holidays: [], cancelled: { sessions: 0, pay: 0 }, lateCuts: { sessions: 0, pay: 0 }, notRecorded: { sessions: 0, pay: 0 }, toGo: { sessions: 0, pay: 0 }, adjustments: 0, other: 0, actual: 0 };
+  return { timetable: { sessions: 0, minutes: 0, pay: 0 }, holidays: [], leave: { sessions: 0, minutes: 0, pay: 0 }, cancelled: { sessions: 0, pay: 0 }, lateCuts: { sessions: 0, pay: 0 }, notRecorded: { sessions: 0, pay: 0 }, toGo: { sessions: 0, pay: 0 }, adjustments: 0, other: 0, actual: 0 };
 }
 
 /** Breakdowns per key (pay month) for the sessions dated from..to; `lines` are payLines for the same span. */
@@ -184,7 +185,8 @@ function breakdowns(db: DB, u: User, from: string, to: string, lines: PayLine[],
       let h = b.holidays.find((x) => x.name === holidayName);
       if (!h) b.holidays.push((h = { name: holidayName, sessions: 0, minutes: 0, pay: 0 }));
       h.sessions++; h.minutes += minutes; h.pay += full;
-    } else if (!held) { b.cancelled.sessions++; b.cancelled.pay += full; }
+    } else if (!held && /^Leave:/.test(s.note ?? '')) { b.leave.sessions++; b.leave.minutes += minutes; b.leave.pay += full; }
+    else if (!held) { b.cancelled.sessions++; b.cancelled.pay += full; }
     else if (s.date >= now) { b.toGo.sessions++; b.toGo.pay += full; }
     else { b.notRecorded.sessions++; b.notRecorded.pay += full; }
   }
@@ -193,13 +195,13 @@ function breakdowns(db: DB, u: User, from: string, to: string, lines: PayLine[],
 
 /** Rounds a breakdown and closes it against the month's actual total and adjustments. */
 function finishBreakdown(b: Breakdown, actual: number, adjustments: number): Breakdown {
-  const lost = b.holidays.reduce((x, h) => x + h.pay, 0) + b.cancelled.pay + b.lateCuts.pay + b.notRecorded.pay + b.toGo.pay;
+  const lost = b.holidays.reduce((x, h) => x + h.pay, 0) + b.leave.pay + b.cancelled.pay + b.lateCuts.pay + b.notRecorded.pay + b.toGo.pay;
   b.adjustments = r2(adjustments);
   b.actual = r2(actual);
   b.other = r2(actual - (b.timetable.pay - lost + adjustments));
   b.timetable.pay = r2(b.timetable.pay);
   for (const h of b.holidays) h.pay = r2(h.pay);
-  for (const k of ['cancelled', 'lateCuts', 'notRecorded', 'toGo'] as const) b[k].pay = r2(b[k].pay);
+  for (const k of ['leave', 'cancelled', 'lateCuts', 'notRecorded', 'toGo'] as const) b[k].pay = r2(b[k].pay);
   return b;
 }
 

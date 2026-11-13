@@ -670,6 +670,7 @@ export function buildRouter(holder: DBHolder): Router {
   put('/sessions/:id', (req, db, u) => plan.updateSession(db, u, num(req.params.id, 'session'), req.body));
   post('/sessions/:id/cancel', (req, db, u) => plan.cancelSession(db, u, num(req.params.id, 'session'), String(req.body.reason ?? '')));
   post('/sessions/:id/restore', (req, db, u) => plan.restoreSession(db, u, num(req.params.id, 'session')));
+  post('/leave', (req, db, u) => plan.takeLeave(db, u, req.body?.sessionIds, req.body?.reason));
   post('/sessions/:id/move', (req, db, u) => plan.moveSession(db, u, num(req.params.id, 'session'), req.body));
   post('/sessions/:id/complete', (req, db, u) => plan.completeSession(db, u, num(req.params.id, 'session'), req.body));
   del('/sessions/:id', (req, db, u) => {

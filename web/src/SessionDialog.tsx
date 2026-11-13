@@ -53,7 +53,7 @@ export function SessionDialog({ session, today, onClose, onChanged }: { session:
   };
 
   if (proposal) return <ProposalReview proposal={proposal} onClose={() => { setProposal(null); onClose(); }} onDone={() => { onChanged(); setProposal(null); onClose(); }} />;
-  if (leave && session.id) return <LeaveRequest date={session.date} sessionIds={[session.id]} onClose={onClose} />;
+  if (leave && session.id) return <LeaveRequest date={session.date} sessionIds={[session.id]} onClose={onClose} onMarked={onChanged} />;
 
   return (
     <Dialog title={<span className="row"><span className="mono">{session.code}</span><Kind kind={session.kind} /><SessionStatus status={session.status} /></span>} onClose={onClose}

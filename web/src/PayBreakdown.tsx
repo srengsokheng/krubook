@@ -6,6 +6,7 @@ import { money } from './ui.tsx';
 export interface Breakdown {
   timetable: { sessions: number; minutes: number; pay: number };
   holidays: Array<{ name: string; sessions: number; minutes: number; pay: number }>;
+  leave?: { sessions: number; minutes: number; pay: number };
   cancelled: { sessions: number; pay: number };
   lateCuts: { sessions: number; pay: number };
   notRecorded: { sessions: number; pay: number };
@@ -22,6 +23,7 @@ export function PayBreakdown({ b, currency }: { b: Breakdown; currency: string }
   const rows: Array<{ label: string; detail?: string; amount: number; tone?: 'bad' | 'warn' | 'faint'; strong?: boolean }> = [
     { label: 'Full timetable', detail: `${classes(b.timetable.sessions)} · ${hours(b.timetable.minutes)} at full pay`, amount: b.timetable.pay, strong: true },
     ...b.holidays.map((h) => ({ label: `Holiday: ${h.name}`, detail: `${classes(h.sessions)} · ${hours(h.minutes)} not paid`, amount: -h.pay, tone: 'bad' as const })),
+    ...(b.leave?.sessions ? [{ label: 'On leave', detail: `${classes(b.leave.sessions)} · ${hours(b.leave.minutes)} not paid`, amount: -b.leave.pay, tone: 'bad' as const }] : []),
     ...(b.cancelled.sessions ? [{ label: 'Other cancelled classes', detail: classes(b.cancelled.sessions), amount: -b.cancelled.pay, tone: 'bad' as const }] : []),
     ...(b.lateCuts.sessions ? [{ label: 'Late arrivals', detail: classes(b.lateCuts.sessions), amount: -b.lateCuts.pay, tone: 'bad' as const }] : []),
     ...(b.notRecorded.sessions ? [{ label: 'Not recorded yet', detail: `${classes(b.notRecorded.sessions)}: record them on the Review page to be paid`, amount: -b.notRecorded.pay, tone: 'warn' as const }] : []),

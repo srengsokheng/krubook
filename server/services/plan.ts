@@ -273,6 +273,35 @@ export function cancelSession(db: DB, u: User, id: number, reason: string) {
   return { proposal: createProposal(db, u, s.class_id, `Session on ${s.date} cancelled${reason ? `: ${reason}` : ''}`, s.date) };
 }
 
+/**
+ * Leave: the teacher asked to be excused from these classes. Each planned one is cancelled with the
+ * note "Leave: <reason>", so the timetable shows it off and pay leaves it out (listed as "On leave").
+ * The lessons of each class are re-planned around it, for review. Restore a session to undo.
+ */
+export function takeLeave(db: DB, u: User, sessionIds: unknown, reason: unknown) {
+  if (!Array.isArray(sessionIds) || !sessionIds.length || sessionIds.length > 20) throw new AppError(422, 'Choose the classes you are taking leave from.');
+  const why = String(reason ?? '').trim().replace(/[។.\s]+$/u, '').slice(0, 300);
+  const note = why ? `Leave: ${why}` : 'Leave';
+  const marked: Array<{ id: number; code: string; date: string; start: string }> = [];
+  const skipped: Array<{ id: number; code: string; reason: string }> = [];
+  const classes = new Map<number, string>();
+  db.tx(() => {
+    for (const raw of sessionIds) {
+      const s = ownSession(db, u, Number(raw));
+      const code = db.get('SELECT code FROM classes WHERE id = ?', s.class_id)!.code as string;
+      if (s.status !== 'planned') { skipped.push({ id: s.id, code, reason: s.status === 'cancelled' ? 'already off' : `already ${s.status}` }); continue; }
+      db.run("UPDATE sessions SET status = 'cancelled', note = ?, version = version + 1, updated_at = datetime('now') WHERE id = ?", note, s.id);
+      db.audit(u.id, 'session', s.id, 'leave', { status: s.status }, { status: 'cancelled', note });
+      marked.push({ id: s.id, code, date: s.date, start: s.start_time });
+      if (!classes.has(s.class_id) || s.date < classes.get(s.class_id)!) classes.set(s.class_id, s.date);
+    }
+  });
+  const proposals = [...classes].map(([classId, from]) => {
+    try { return createProposal(db, u, classId, `Leave on ${from}${why ? `: ${why}` : ''}`, from); } catch { return null; }
+  }).filter(Boolean);
+  return { marked, skipped, proposals: proposals.length };
+}
+
 export function restoreSession(db: DB, u: User, id: number) {
   const s = ownSession(db, u, id);
   if (s.status !== 'cancelled' && s.status !== 'skipped') throw new AppError(409, 'Only cancelled or skipped sessions can be restored.');
