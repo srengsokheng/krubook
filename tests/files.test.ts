@@ -33,6 +33,17 @@ beforeEach(async () => {
 afterEach(() => { server.close(); db.close(); rmSync(dir, { recursive: true, force: true }); });
 
 describe('class details and exam files', () => {
+  it('moves a class to another term of the teacher, never to a term that has its code already', async () => {
+    const owner = db.get('SELECT teacher_id, course_id FROM classes WHERE id = ?', cls)!;
+    const t2 = db.run("INSERT INTO terms (owner_id, name, start_date, end_date) VALUES (?, 'Evening', '2026-11-16', '2027-05-08')", owner.teacher_id).id;
+    expect((await call(cookie, 'PUT', `/classes/${cls}`, { termId: t2 })).status).toBe(200);
+    expect(db.get('SELECT term_id FROM classes WHERE id = ?', cls)!.term_id).toBe(t2);
+    const t3 = db.run("INSERT INTO terms (owner_id, name, start_date, end_date) VALUES (?, 'Other', '2026-11-30', '2027-05-22')", owner.teacher_id).id;
+    db.run("INSERT INTO classes (term_id, course_id, teacher_id, code, start_date) VALUES (?, ?, ?, 'ASL3', '2026-11-30')", t3, owner.course_id, owner.teacher_id);
+    expect((await call(cookie, 'PUT', `/classes/${cls}`, { termId: t3 })).status).toBe(409);
+    expect((await call(other, 'PUT', `/classes/${cls}`, { termId: t3 })).status).toBe(404);
+  });
+
   it('saves the year, semester and promotion of a class', async () => {
     expect((await call(cookie, 'PUT', `/classes/${cls}`, { yearLevel: 2, semester: 1, promotion: '24' })).status).toBe(200);
     expect(await (await call(cookie, 'GET', `/classes/${cls}`)).json()).toMatchObject({ year_level: 2, semester: 1, promotion: '24' });

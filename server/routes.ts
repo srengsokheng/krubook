@@ -553,6 +553,14 @@ export function buildRouter(holder: DBHolder): Router {
         b.room === undefined ? c.room : b.room, b.weeks ?? c.weeks, b.status ?? c.status, b.notes === undefined ? c.notes : b.notes, b.progressTolerance ?? c.progress_tolerance,
         b.sessionRule === undefined ? c.session_rule : b.sessionRule === null ? null : JSON.stringify(validRule(b.sessionRule)),
         small(b.yearLevel, 'Year', 8, c.year_level), small(b.semester, 'Semester', 3, c.semester), b.promotion === undefined ? c.promotion : optText(b.promotion, 'Promotion', 40), c.id);
+      // Moving a class to another term (its exam weeks and term holidays then apply). Re-plan the
+      // class afterwards to place its sessions around them.
+      if (b.termId !== undefined && Number(b.termId) !== c.term_id) {
+        const t = ownTerm(db, u, num(b.termId, 'term'));
+        const code = str(b.code ?? c.code, 'Class code');
+        if (db.get('SELECT 1 FROM classes WHERE term_id = ? AND code = ? AND id <> ?', t.id, code, c.id)) throw new AppError(409, `${t.name} already has a class ${code}.`);
+        db.run('UPDATE classes SET term_id = ? WHERE id = ?', t.id, c.id);
+      }
       db.audit(u.id, 'class', c.id, 'update', c, b);
     });
   });
