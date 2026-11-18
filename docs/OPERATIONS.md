@@ -47,6 +47,10 @@ shape, so migrations and workflows are tested realistically.
 Release flow: push to `development` → CI tests → deploy to staging → check the changed pages →
 merge to `main` → CI deploys production.
 
+A release to `main` is normally a fast-forward to a commit that already passed every check on
+`development`. CI then reuses that run's build and deploys straight away (about a minute); a
+commit not tested on `development` in the last 6 days gets the full checks first.
+
 Setting staging up needs a DNS record and a second service and nginx site, so it is left for your
 go-ahead. Until then, migrations are tested by restoring a production backup on a separate machine
 (see `docs/BACKUPS.md`, *Verified*).

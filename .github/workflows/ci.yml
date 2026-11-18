@@ -7,13 +7,39 @@ on:
     branches: [main, development]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  actions: read   # to reuse the build of a run that already tested this commit
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  # A release to main is a fast-forward to a commit that already passed every check on
+  # development. When that run is found (and its build is still kept), the deploy reuses it
+  # instead of running the same tests again: the release takes about a minute, not seven.
+  already-tested:
+    name: Already tested on development?
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      run-id: ${{ steps.find.outputs.run-id }}
+    steps:
+      - id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          id=$(gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?branch=development&event=push&status=success&head_sha=${{ github.sha }}" \
+            -q '[.workflow_runs[] | select((.created_at | fromdateiso8601) > (now - 6*86400))][0].id // empty' || true)
+          echo "run-id=$id" >> "$GITHUB_OUTPUT"
+          if [ -n "$id" ]; then echo "Commit ${GITHUB_SHA::7} passed every check on development (run $id); reusing its build."; else echo "Not tested on development in the last 6 days: running the full checks."; fi
+
   test:
     name: Typecheck, test and build
+    needs: already-tested
+    # Always on development and pull requests; on main only when the commit was not tested yet.
+    if: ${{ !cancelled() && needs.already-tested.outputs.run-id == '' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,8 +68,8 @@ jobs:
 
   deploy:
     name: Deploy to production
-    needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [already-tested, test]
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.test.result == 'success' || needs.already-tested.outputs.run-id != '') }}
     runs-on: ubuntu-latest
     environment:
       name: production
@@ -54,6 +80,9 @@ jobs:
         with:
           name: web-dist
           path: web/dist
+          # The build from the development run that tested this commit, or from this run.
+          run-id: ${{ needs.already-tested.outputs.run-id || github.run_id }}
+          github-token: ${{ github.token }}
       - name: Configure SSH
         run: |
           install -d -m 700 ~/.ssh
