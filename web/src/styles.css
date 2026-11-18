@@ -493,16 +493,24 @@ details.more[open] > summary::before { content: '▾ '; }
 .kv dd { margin: 0; }
 
 /* ---------- Score link for students (no sign-in) ---------- */
-.public-scores { max-width: 1100px; margin: 0 auto; padding: 24px max(16px, env(safe-area-inset-left, 0px)) 48px; display: flex; flex-direction: column; gap: 16px; }
+.public-scores { max-width: 1100px; margin: 0 auto; padding: 28px max(16px, env(safe-area-inset-left, 0px)) 48px; display: flex; flex-direction: column; gap: 14px; }
+.public-head h1 { margin: 0; font: 700 1.5rem/1.2 var(--font-display); }
+.public-head h1 span { font-weight: 500; color: var(--ink-2); margin-left: 6px; }
+.public-search { position: sticky; top: 0; z-index: 5; background: var(--paper); padding: 6px 0; }
+.public-search .search { max-width: 420px; }
 .public-table th, .public-table td { white-space: nowrap; }
 .public-table th:first-child, .public-table td:first-child { position: sticky; left: 0; background: var(--surface); }
-.public-cards { list-style: none; margin: 0; padding: 0; display: none; flex-direction: column; gap: 10px; }
-.public-cards > li { padding: 12px 14px; }
-.public-cards dl { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px 12px; margin: 10px 0 0; }
-.public-cards dt { font-size: var(--fs-xs); color: var(--ink-3); }
-.public-cards dd { margin: 0; font-size: var(--fs-md, 1rem); }
-.public-cards .total dd { font-size: 1.15rem; }
+.public-list { list-style: none; margin: 0; padding: 0; display: none; }
+.public-list > li { border-top: 1px solid var(--rule); }
+.public-list > li:first-child { border-top: 0; }
+.public-list summary { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 10px; padding: 12px 14px; cursor: pointer; list-style: none; }
+.public-list summary::-webkit-details-marker { display: none; }
+.public-list .who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.public-list details[open] summary { background: var(--surface-2); }
+.public-list dl { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px 12px; margin: 0; padding: 8px 14px 14px; }
+.public-list dt { font-size: var(--fs-xs); color: var(--ink-3); }
+.public-list dd { margin: 0; }
 @media (max-width: 720px) {
-  .public-cards { display: flex; }
+  .public-list { display: block; }
   .public-table-wrap { display: none; }
 }

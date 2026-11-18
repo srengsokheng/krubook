@@ -133,7 +133,10 @@ test.describe('signed in', () => {
     await expect(sp.getByRole('heading', { name: /ASL3/ })).toBeVisible();
     expect(await sp.locator('.public-table tbody tr').count()).toBeGreaterThan(5);
     await expect(sp.locator('#password')).toHaveCount(0);
-    await sp.getByLabel('Find your ID or name').fill('0230001');
+    // Listed by name (no IDs), empty columns hidden; searching a name leaves that student.
+    await expect(sp.locator('.public-table th', { hasText: /^ID$/ })).toHaveCount(0);
+    await expect(sp.locator('.public-table th', { hasText: 'Final project' })).toHaveCount(0);
+    await sp.getByLabel('Search your name').fill('NOB Rathana');
     await expect(sp.locator('.public-table tbody tr')).toHaveCount(1);
     // The teacher stops it: the page now says so.
     await page.getByRole('button', { name: 'Stop sharing' }).click();

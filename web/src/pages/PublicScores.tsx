@@ -55,46 +55,52 @@ export function PublicScores({ token }: { token: string }) {
   }
   if (!data) return <div className="public-scores"><p className="faint" style={{ textAlign: 'center', marginTop: '20vh' }}>Loading…</p></div>;
 
+  // Students are listed by name (the IDs on the list are not official); with "ID only" links, by ID.
+  const label = (r: Data['rows'][number]) => (data.showNames ? r.nameLatin || r.nameKm || r.code : r.code);
   const q = query.trim().toLowerCase();
-  const rows = data.rows.filter((r) => !q || r.code.toLowerCase().includes(q) || (r.nameLatin ?? '').toLowerCase().includes(q) || (r.nameKm ?? '').includes(query.trim()));
+  const rows = data.rows
+    .filter((r) => !q || label(r).toLowerCase().includes(q) || (r.nameKm ?? '').includes(query.trim()))
+    .sort((a, b) => label(a).localeCompare(label(b), 'en', { numeric: true }));
+  // Only columns someone has a mark in; the others appear once the first mark is entered.
+  const shown = data.columns.map((c, i) => ({ ...c, i })).filter((c) => data.rows.some((r) => r.values[c.i] != null));
+  const result = (r: Data['rows'][number]) => r.result ? <span className={`pill ${r.result === 'pass' ? 'ok' : 'bad'}`}>{r.label}</span> : null;
+  const ago = updated ? Math.max(0, Math.round((Date.now() - updated.getTime()) / 60000)) : null;
   return (
     <div className="public-scores">
-      <header className="stack" style={{ gap: 4 }}>
-        <div className="eyebrow">ពិន្ទុថ្នាក់ · Class scores</div>
-        <h1 style={{ margin: 0 }}><span className="mono">{data.classCode}</span> · {data.course}</h1>
-        <div className="faint small">
-          {data.teacher} · total out of {data.targetTotal}, pass from {data.passMark}
-          {updated && <> · updated {updated.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</>}
-          {' '}· link open until {local(data.expiresAt)}
-        </div>
+      <header className="public-head">
+        <h1>{data.classCode} <span>{data.course}</span></h1>
+        <div className="faint xs">Updated {ago === null || ago < 1 ? 'just now' : `${ago} min ago`} · out of {data.targetTotal}</div>
       </header>
-      <div className="search" style={{ maxWidth: 360 }}>
-        <Icon name="search" />
-        <input aria-label="Find your ID or name" placeholder={data.showNames ? 'Find your ID or name · ស្វែងរកអត្តលេខ' : 'Find your ID · ស្វែងរកអត្តលេខ'} value={query} onChange={(e) => setQuery(e.target.value)} inputMode="search" />
+      <div className="public-search">
+        <div className="search">
+          <Icon name="search" />
+          <input aria-label="Search your name" placeholder={data.showNames ? 'Search your name' : 'Search your ID'} value={query} onChange={(e) => setQuery(e.target.value)} inputMode="search" />
+        </div>
       </div>
-      {/* Phones: one card per student, every mark visible without scrolling sideways. */}
-      <ul className="public-cards">
+      {/* Phones: one short line per student; tap to see the marks. */}
+      <ul className="public-list panel">
         {rows.map((r) => (
-          <li key={r.code} className="panel">
-            <div className="row" style={{ justifyContent: 'space-between', gap: 8 }}>
-              <span><b className="mono">{r.code}</b>{data.showNames && <> · {r.nameLatin || r.nameKm}</>}</span>
-              {r.result ? <span className={`pill ${r.result === 'pass' ? 'ok' : 'bad'}`}>{r.label}</span> : <span className="faint xs">in progress</span>}
-            </div>
-            <dl>
-              {data.columns.map((c, i) => <div key={c.id}><dt>{c.name}</dt><dd className="mono">{fmt(r.values[i] ?? null)}<span className="faint">/{c.max}</span></dd></div>)}
-              <div className="total"><dt>Total</dt><dd className="mono"><b>{fmt(r.total)}</b><span className="faint">/{data.targetTotal}</span></dd></div>
-            </dl>
+          <li key={r.code}>
+            <details open={rows.length === 1}>
+              <summary>
+                <span className="who">{label(r)}{data.showNames && r.nameKm && r.nameLatin && <span className="faint xs"> {r.nameKm}</span>}</span>
+                <span className="mono"><b>{fmt(r.total)}</b></span>
+                {result(r)}
+              </summary>
+              {shown.length ? (
+                <dl>{shown.map((c) => <div key={c.id}><dt>{c.name}</dt><dd className="mono">{fmt(r.values[c.i] ?? null)}<span className="faint">/{c.max}</span></dd></div>)}</dl>
+              ) : <p className="faint xs" style={{ margin: '6px 0 0' }}>No marks yet.</p>}
+            </details>
           </li>
         ))}
-        {!rows.length && <li className="faint small">No student matches.</li>}
+        {!rows.length && <li className="faint small" style={{ padding: 14 }}>No one matches.</li>}
       </ul>
       <div className="panel public-table-wrap" style={{ overflowX: 'auto' }}>
         <table className="table public-table">
           <thead>
             <tr>
-              <th>ID</th>
-              {data.showNames && <th>Name</th>}
-              {data.columns.map((c) => <th key={c.id} className="num">{c.name}<div className="faint xs">/{c.max}</div></th>)}
+              <th>{data.showNames ? 'Name' : 'ID'}</th>
+              {shown.map((c) => <th key={c.id} className="num">{c.name}<div className="faint xs">/{c.max}</div></th>)}
               <th className="num">Total<div className="faint xs">/{data.targetTotal}</div></th>
               <th>Result</th>
             </tr>
@@ -102,18 +108,17 @@ export function PublicScores({ token }: { token: string }) {
           <tbody>
             {rows.map((r) => (
               <tr key={r.code}>
-                <td className="mono">{r.code}</td>
-                {data.showNames && <td>{r.nameLatin || r.nameKm}{r.nameKm && r.nameLatin && <div className="faint xs">{r.nameKm}</div>}</td>}
-                {r.values.map((v, i) => <td key={i} className="num mono">{fmt(v)}</td>)}
+                <td className={data.showNames ? '' : 'mono'}>{label(r)}{data.showNames && r.nameKm && r.nameLatin && <div className="faint xs">{r.nameKm}</div>}</td>
+                {shown.map((c) => <td key={c.id} className="num mono">{fmt(r.values[c.i] ?? null)}</td>)}
                 <td className="num mono"><b>{fmt(r.total)}</b></td>
-                <td>{r.result ? <span className={`pill ${r.result === 'pass' ? 'ok' : 'bad'}`}>{r.label}</span> : <span className="faint xs">in progress</span>}</td>
+                <td>{result(r)}</td>
               </tr>
             ))}
-            {!rows.length && <tr><td colSpan={data.columns.length + 4} className="faint small">No student matches.</td></tr>}
+            {!rows.length && <tr><td colSpan={shown.length + 3} className="faint small">No one matches.</td></tr>}
           </tbody>
         </table>
       </div>
-      <p className="faint xs">“–” means not marked yet. This page updates by itself.</p>
+      <p className="faint xs">“–” means not marked yet. This page updates by itself. Link open until {local(data.expiresAt)}.</p>
     </div>
   );
 }
