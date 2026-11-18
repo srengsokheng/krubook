@@ -1,3 +1,4 @@
+import { ShareScores } from '../ShareScores.tsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, download, isOfflineCopy, useApi } from '../api.ts';
@@ -22,6 +23,7 @@ export function GradebookTab({ cls }: { cls: any }) {
   const { data: groupRows } = useApi<Array<{ set_id: number; set_name: string; group_id: number; group_name: string; topic: string | null; enrollment_id: number }>>(`/classes/${cls.id}/group-membership`);
   const [group, setGroup] = useState('');
   const [editing, setEditing] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const [migrating, setMigrating] = useState(false);
   const [focusRow, setFocusRow] = useState<number | null>(null);
   const sync = useSync();
@@ -193,6 +195,7 @@ export function GradebookTab({ cls }: { cls: any }) {
         <div className="row">
           <Pill tone={data.config.status === 'active' ? 'ok' : data.config.status === 'finalized' ? 'ink' : 'warn'}>{data.config.status}</Pill>
           <Menu label="More" items={[
+            { label: 'Share with students…', onSelect: () => setSharing(true) },
             { label: 'Grading setup…', onSelect: () => setEditing(true) },
             { label: 'Use calculated attendance…', hidden: !comps.some((c) => c.kind === 'attendance'), onSelect: () => setMigrating(true) },
             { label: 'Export to Excel', onSelect: () => download(`/export/gradebook/${cls.id}`).catch((e) => toast(e.message, 'bad')) },
@@ -255,6 +258,7 @@ export function GradebookTab({ cls }: { cls: any }) {
         </table>
       </div>
       {migrating && <AttendanceMigration cls={cls} onClose={() => setMigrating(false)} onDone={() => { setMigrating(false); reload(); }} />}
+      {sharing && <ShareScores cls={cls} onClose={() => setSharing(false)} />}
       {editing && <ConfigEditor cls={cls} data={data} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); reload(); }} />}
     </div>
   );

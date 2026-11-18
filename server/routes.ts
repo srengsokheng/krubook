@@ -19,6 +19,7 @@ import * as reconcile from './services/reconcile.ts';
 import * as checkin from './services/checkin.ts';
 import * as merge from './services/merge.ts';
 import * as groups from './services/groups.ts';
+import * as shares from './services/shares.ts';
 import { PAGE_SIZES, pageArray, paged, readPage, readSort } from './paging.ts';
 import { addDays, diffDays, isISODate, isTime, rangesOverlap, startOfWeek } from '../shared/dates.ts';
 import { findOverlaps, standardTemplate, type SessionRule } from '../shared/schedule.ts';
@@ -822,6 +823,14 @@ export function buildRouter(holder: DBHolder): Router {
 
   // ---- Gradebook & attendance --------------------------------------------------------------
   get('/classes/:id/gradebook', (req, db, u) => records.gradebook(db, u, num(req.params.id, 'class')));
+  // ---- Score links for students (no sign-in; they expire) ------------------------------------
+  get('/classes/:id/shares', (req, db, u) => shares.listShares(db, u, num(req.params.id, 'class')));
+  post('/classes/:id/shares', (req, db, u) => shares.createShare(db, u, num(req.params.id, 'class'), req.body ?? {}));
+  del('/shares/:id', (req, db, u) => shares.stopShare(db, u, num(req.params.id, 'link')));
+  get('/public/scores/:token', (req, db, _u, res) => {
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    return shares.publicScores(db, String(req.params.token).slice(0, 100));
+  }, { auth: false });
   // ---- Student groups for group work ---------------------------------------------------------
   get('/classes/:id/groups', (req, db, u) => groups.listSets(db, u, num(req.params.id, 'class')));
   get('/classes/:id/group-membership', (req, db, u) => groups.membership(db, u, num(req.params.id, 'class')));

@@ -118,6 +118,30 @@ test.describe('signed in', () => {
     expect(JSON.stringify(pay)).toContain('Leave: ');
   });
 
+  test('score link: students open it without signing in and see the class’s marks; stopping it ends it', async ({ page, browser }) => {
+    await page.goto('/classes/1/grades');
+    await page.getByRole('button', { name: 'More' }).click();
+    await page.getByRole('menuitem', { name: 'Share with students…' }).click();
+    await page.locator('#share-days').selectOption('2');
+    await page.getByRole('button', { name: 'Make link and copy it' }).click();
+    const link = (await page.getByLabel('Student link').first().textContent())!.trim();
+    expect(link).toMatch(/\/s\/[\w-]{20,}$/);
+    // A student: no cookies, no sign-in.
+    const student = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+    const sp = await student.newPage();
+    await sp.goto(link);
+    await expect(sp.getByRole('heading', { name: /ASL3/ })).toBeVisible();
+    expect(await sp.locator('.public-table tbody tr').count()).toBeGreaterThan(5);
+    await expect(sp.locator('#password')).toHaveCount(0);
+    await sp.getByLabel('Find your ID or name').fill('0230001');
+    await expect(sp.locator('.public-table tbody tr')).toHaveCount(1);
+    // The teacher stops it: the page now says so.
+    await page.getByRole('button', { name: 'Stop sharing' }).click();
+    await sp.reload();
+    await expect(sp.getByText('This link does not exist or was stopped by the teacher.')).toBeVisible();
+    await student.close();
+  });
+
   test('attendance: ticking a student saves, and the tick survives a reload', async ({ page }) => {
     await page.goto('/classes/1/attendance');
     const box = page.getByRole('checkbox', { name: /^0230002 / });

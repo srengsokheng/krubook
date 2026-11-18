@@ -36,7 +36,12 @@ function preloadPages() {
 
 export interface Me { id: number; name: string; email: string; role: string; accessUntil?: string | null; featuresOff?: string[]; mustChangePassword?: boolean; expired?: boolean }
 
+const PublicScores = lazy(() => import('./pages/PublicScores.tsx').then((m) => ({ default: m.PublicScores })));
+
 export function App() {
+  // A score link for students (/s/<token>) needs no sign-in and shows nothing else of the app.
+  const share = /^\/s\/([A-Za-z0-9_-]{10,100})\/?$/.exec(window.location.pathname);
+  if (share) return <I18nProvider><Suspense fallback={null}><PublicScores token={share[1]!} /></Suspense></I18nProvider>;
   return (
     <I18nProvider>
       <ToastProvider>

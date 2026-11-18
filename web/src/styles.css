@@ -491,3 +491,18 @@ details.more[open] > summary::before { content: '▾ '; }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: var(--fs-sm); }
 .kv dt { color: var(--ink-3); }
 .kv dd { margin: 0; }
+
+/* ---------- Score link for students (no sign-in) ---------- */
+.public-scores { max-width: 1100px; margin: 0 auto; padding: 24px max(16px, env(safe-area-inset-left, 0px)) 48px; display: flex; flex-direction: column; gap: 16px; }
+.public-table th, .public-table td { white-space: nowrap; }
+.public-table th:first-child, .public-table td:first-child { position: sticky; left: 0; background: var(--surface); }
+.public-cards { list-style: none; margin: 0; padding: 0; display: none; flex-direction: column; gap: 10px; }
+.public-cards > li { padding: 12px 14px; }
+.public-cards dl { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px 12px; margin: 10px 0 0; }
+.public-cards dt { font-size: var(--fs-xs); color: var(--ink-3); }
+.public-cards dd { margin: 0; font-size: var(--fs-md, 1rem); }
+.public-cards .total dd { font-size: 1.15rem; }
+@media (max-width: 720px) {
+  .public-cards { display: flex; }
+  .public-table-wrap { display: none; }
+}

@@ -685,4 +685,19 @@ CREATE TABLE group_members (
 );
 CREATE INDEX group_members_group ON group_members(group_id);
 `,
+  /* 12: links that show a class's marks to its students without signing in, for a day or two */ `
+CREATE TABLE score_shares (
+  id INTEGER PRIMARY KEY,
+  class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+  token TEXT NOT NULL UNIQUE,
+  show_names INTEGER NOT NULL DEFAULT 1,
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  expires_at TEXT NOT NULL,
+  revoked_at TEXT,
+  views INTEGER NOT NULL DEFAULT 0,
+  last_viewed_at TEXT
+);
+CREATE INDEX score_shares_class ON score_shares(class_id);
+`,
 ];
