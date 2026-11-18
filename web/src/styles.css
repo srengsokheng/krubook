@@ -329,6 +329,8 @@ table.table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
   .tt-ev .kind.exam::before { content: 'E'; }
 }
 .tt-ev .code { font: 600 var(--fs-sm) var(--font-data); }
+.tt-room { margin-left: 6px; padding: 0 4px; border-radius: 3px; font: 600 var(--fs-xs) var(--font-data); color: var(--ink); background: color-mix(in srgb, var(--c, var(--accent)) 22%, var(--surface)); }
+.when .tt-room { display: inline-block; margin: 2px 0 0; }
 .tt-ev .t { font-family: var(--font-data); color: var(--ink-2); }
 .tt-ev.cancelled { background: var(--surface-2); border-style: dashed; color: var(--ink-3); }
 .tt-ev.cancelled .code { text-decoration: line-through; }

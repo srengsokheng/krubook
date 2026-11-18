@@ -101,7 +101,7 @@ export function Timetable() {
                 {list.length ? <ul className="ledger">{list.map((s: any, i: number) => (
                   <li key={s.id ?? `g${i}`} onClick={() => s.id && setOpenId(s.id)} style={{ cursor: s.id ? 'pointer' : 'default' }}>
                     <span className="swatch" style={{ background: s.color }} />
-                    <span className="when">{s.start}–{s.end}</span>
+                    <span className="when">{s.start}–{s.end}{s.room && <div className="tt-room" title="Room">{s.room}</div>}</span>
                     <div className="grow">
                       <div className="row"><b className={`mono ${s.status === 'cancelled' || (s.id && stillOnHoliday(s)) ? 'strike' : ''}`}>{s.code}</b>{s.kind && <Kind kind={s.kind} />}{clash.has(s.id) && !stillOnHoliday(s) && <span className="pill bad">clash</span>}{s.id && stillOnHoliday(s) && <span className="pill">holiday · no class</span>}</div>
                       <div className="small muted">{s.startsOn ? `Starts ${formatDate(s.startsOn, lang)}` : s.status === 'cancelled' ? s.note : s.part ?? s.checkpoint ?? s.course_name}</div>
@@ -130,7 +130,7 @@ export function Timetable() {
               <div key={d} className={`tt-col ${d === data.today ? 'today' : ''} ${holidayOn(d) ? 'holiday' : ''}`} style={{ height: hours * HOUR }}>
                 {data.ghosts.filter((g: any) => g.date === d).map((g: any, i: number) => (
                   <div key={`g${i}`} className="tt-ev ghost" style={{ ...pos(g), ['--c' as any]: g.color }} title={`${g.code} starts ${g.startsOn}`}>
-                    <div className="code">{g.code}</div>
+                    <div className="code">{g.code}{g.room && <span className="tt-room" title="Room">{g.room}</span>}</div>
                     <div className="t">{g.start}–{g.end}</div>
                     <div>Starts {formatDate(g.startsOn, lang)}</div>
                   </div>
@@ -138,7 +138,7 @@ export function Timetable() {
                 {data.sessions.filter((s: any) => s.date === d).map((s: any) => (
                   <button key={s.id} className={`tt-ev ${stillOnHoliday(s) ? 'cancelled on-holiday' : s.status} ${clash.has(s.id) && !stillOnHoliday(s) ? 'clash' : ''} ${s.moved_from_id ? 'moved-here' : ''}`} style={{ ...pos(s), ['--c' as any]: s.color }} onClick={() => setOpenId(s.id)}
                     title={stillOnHoliday(s) ? `${s.code} ${s.start}–${s.end}: holiday (${holidayOn(s.date)}), no class. If you teach anyway, open it and mark it as taught on the holiday.` : `${s.code} ${s.course_name} ${s.start}–${s.end}`}>
-                    <div className="row" style={{ gap: 5, justifyContent: 'space-between' }}><span className="code">{s.code}</span><Kind kind={s.kind} /></div>
+                    <div className="row" style={{ gap: 5, justifyContent: 'space-between' }}><span className="code">{s.code}{s.room && <span className="tt-room" title="Room">{s.room}</span>}</span><Kind kind={s.kind} /></div>
                     <div className="t">{s.start}–{s.end}{s.status === 'completed' && ' ✓'}</div>
                     <div>{stillOnHoliday(s) ? `Holiday: ${holidayOn(s.date)} — no class` : s.status === 'cancelled' ? s.note ?? 'Cancelled' : s.checkpoint ? <span className="marker">{s.checkpoint}</span> : s.part ?? s.activity.replace('_', ' ')}</div>
                     {s.is_makeup ? <div className="faint">Make-up</div> : null}

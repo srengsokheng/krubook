@@ -5,7 +5,7 @@ import { useI18n } from '../i18n.tsx';
 import { D, Dialog, Empty, ErrorNote, Field, Icon, Loading, Notice, Pill, ProgressPill, useAction } from '../ui.tsx';
 import { weekdayName } from '../../../shared/dates.ts';
 
-export const meetingText = (ms: any[], lang: 'en' | 'km' = 'en') => ms.map((m) => `${weekdayName(m.weekday, lang)} ${m.start_time}–${m.end_time}`).join(', ');
+export const meetingText = (ms: any[], lang: 'en' | 'km' = 'en') => ms.map((m) => `${weekdayName(m.weekday, lang)} ${m.start_time}–${m.end_time}${m.room ? ` (${m.room})` : ''}`).join(', ');
 
 export function Classes() {
   const { t, lang } = useI18n();
@@ -68,6 +68,7 @@ export function MeetingsEditor({ value, onChange }: { value: any[]; onChange: (v
           </select>
           <input aria-label="Start time" type="time" value={m.start} onChange={(e) => set(i, { start: e.target.value })} />
           <input aria-label="End time" type="time" value={m.end} onChange={(e) => set(i, { end: e.target.value })} />
+          <input aria-label="Room" placeholder="Room" value={m.room ?? ''} onChange={(e) => set(i, { room: e.target.value || null })} style={{ width: 80 }} />
           <button className="btn ghost sm" aria-label="Remove meeting" onClick={() => onChange(value.filter((_, j) => j !== i))}><Icon name="trash" /></button>
         </div>
       ))}

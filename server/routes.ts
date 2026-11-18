@@ -737,8 +737,8 @@ export function buildRouter(holder: DBHolder): Router {
     const sc = classScope(u);
     const sessions = db.all(
       `SELECT s.id, s.class_id, s.date, s.start_time AS start, s.end_time AS "end", s.kind, s.activity, s.status, s.checkpoint, s.is_makeup, s.moved_from_id, s.note, s.part_id, s.week, s.holiday_exception,
-              c.code, c.course_id, c.room AS class_room, co.name AS course_name, co.code AS course_code, co.color
-         FROM sessions s JOIN classes c ON c.id = s.class_id JOIN courses co ON co.id = c.course_id
+              c.code, c.course_id, c.room AS class_room, COALESCE(mt.room, c.room) AS room, co.name AS course_name, co.code AS course_code, co.color
+         FROM sessions s JOIN classes c ON c.id = s.class_id JOIN courses co ON co.id = c.course_id LEFT JOIN meetings mt ON mt.id = s.meeting_id
         WHERE ${sc.where} AND s.date BETWEEN ? AND ? AND c.status <> 'archived' ORDER BY s.date, s.start_time`,
       ...sc.params, from, to,
     );
@@ -747,7 +747,7 @@ export function buildRouter(holder: DBHolder): Router {
     const overlaps = findOverlaps(sessions.map((s) => ({ ...s, classId: s.class_id })) as any[]).map(([a, b]) => [a.id, b.id]);
     // Classes that have not started yet appear as outlines on their future meeting slots.
     const ghosts = db.all(`SELECT m.*, c.id AS class_id, c.code, c.start_date, co.color, co.name AS course_name FROM meetings m JOIN classes c ON c.id = m.class_id JOIN courses co ON co.id = c.course_id WHERE ${sc.where} AND c.start_date > ? AND c.status IN ('upcoming','active')`, ...sc.params, from)
-      .map((m) => ({ classId: m.class_id, code: m.code, color: m.color, courseName: m.course_name, date: addDays(from, (m.weekday + 6) % 7), start: m.start_time, end: m.end_time, startsOn: m.start_date }))
+      .map((m) => ({ classId: m.class_id, code: m.code, color: m.color, courseName: m.course_name, date: addDays(from, (m.weekday + 6) % 7), start: m.start_time, end: m.end_time, startsOn: m.start_date, room: m.room }))
       .filter((g) => g.date < g.startsOn && !sessions.some((s) => s.class_id === g.classId && s.date === g.date));
     return { from, to, today: today(db, u), sessions: sessions.map((s) => ({ ...s, part: s.part_id ? partNames.get(s.part_id) ?? null : null })), overlaps, ghosts };
   });

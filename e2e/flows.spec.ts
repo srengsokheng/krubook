@@ -145,6 +145,18 @@ test.describe('signed in', () => {
     await student.close();
   });
 
+  test('rooms: each meeting time can have its own room, shown on the timetable', async ({ page }) => {
+    await page.goto('/classes/2/setup');
+    const rooms = page.locator('.meeting-row input[aria-label="Room"]');
+    await rooms.nth(0).fill('5C');
+    await rooms.nth(1).fill('3L');
+    await page.getByRole('button', { name: 'Save meeting times' }).click();
+    await expect(page.getByText('Meeting times saved')).toBeVisible();
+    await expect(page.locator('.sub', { hasText: '(5C)' })).toBeVisible();
+    await page.goto('/timetable?week=2026-11-02');
+    await expect(page.locator('.tt-ev', { hasText: 'SW33' }).locator('.tt-room').first()).toHaveText(/5C|3L/);
+  });
+
   test('attendance: ticking a student saves, and the tick survives a reload', async ({ page }) => {
     await page.goto('/classes/1/attendance');
     const box = page.getByRole('checkbox', { name: /^0230002 / });

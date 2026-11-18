@@ -16,6 +16,7 @@ export interface SessionLike {
   end?: string;
   start_time?: string;
   end_time?: string;
+  room?: string | null;
   kind: string;
   kind_source?: string;
   status: string;
@@ -79,7 +80,7 @@ export function SessionDialog({ session, today, onClose, onChanged }: { session:
         </>
       )}>
       <div className="stack" style={{ gap: 6 }}>
-        <div className="mono"><D date={session.date} year /> · {start}–{end}</div>
+        <div className="mono"><D date={session.date} year /> · {start}–{end}{session.room ? <> · Room <b>{session.room}</b></> : null}</div>
         {session.part && <div>{session.part}</div>}
         {session.checkpoint && <div><span className="marker">{session.checkpoint}</span></div>}
         {session.note && <div className="muted small">{session.note}</div>}
