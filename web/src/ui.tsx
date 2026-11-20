@@ -280,8 +280,8 @@ export function useDebounced<T>(value: T, ms = 250): T {
   return v;
 }
 
-/** "Year 1 · P88": the class's year and promotion (intake), as on the SETEC timetable sheets. */
+/** "Year 2 · Promotion 12": the class's year of study and promotion (intake). */
 export function classTag(year?: number | null, promotion?: string | null): string {
   const p = promotion?.trim();
-  return [year ? `Year ${year}` : '', p ? (/^\d+$/.test(p) ? `P${p}` : p) : ''].filter(Boolean).join(' · ');
+  return [year ? `Year ${year}` : '', p ? (/^\d+$/.test(p) ? `Promotion ${p}` : p) : ''].filter(Boolean).join(' · ');
 }

@@ -212,7 +212,7 @@ test.describe('signed in', () => {
     const code = (await first.locator('a.mono').first().textContent())!.trim();
     await page.goto(`${href}/setup`);
     await page.locator('#s-year').selectOption('1');
-    await page.locator('#s-promo').fill('88');
+    await page.locator('#s-promo').fill('12');
     await page.getByRole('button', { name: 'Save details' }).click();
     await expect(page.getByText('Class saved')).toBeVisible();
     const rooms = page.locator('.meeting-row input[aria-label="Room"]');
@@ -223,7 +223,7 @@ test.describe('signed in', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
     const row = page.locator('.today-list > li', { hasText: code }).first();
-    await expect(row.getByText('Year 1 · P88')).toBeVisible();
+    await expect(row.getByText('Year 1 · Promotion 12')).toBeVisible();
     await expect(row.locator('.room-tag')).toHaveText('2C');
     // Nothing in the row is squeezed into a narrow column: the lesson line is as wide as the row's text.
     const rowBox = (await row.locator('.grow').first().boundingBox())!;
