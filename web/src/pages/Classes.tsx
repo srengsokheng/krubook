@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, useApi } from '../api.ts';
 import { useI18n } from '../i18n.tsx';
-import { D, Dialog, Empty, ErrorNote, Field, Icon, Loading, Notice, Pill, ProgressPill, useAction } from '../ui.tsx';
+import { classTag, D, Dialog, Empty, ErrorNote, Field, Icon, Loading, Notice, Pill, ProgressPill, useAction } from '../ui.tsx';
 import { weekdayName } from '../../../shared/dates.ts';
 
 export const meetingText = (ms: any[], lang: 'en' | 'km' = 'en') => ms.map((m) => `${weekdayName(m.weekday, lang)} ${m.start_time}–${m.end_time}${m.room ? ` (${m.room})` : ''}`).join(', ');
@@ -35,7 +35,7 @@ export function Classes() {
               <tbody>
                 {list.filter((c) => c.term_name === term).map((c) => (
                   <tr key={c.id} className={c.status === 'archived' ? 'is-dim' : ''}>
-                    <td><span className="row" style={{ gap: 8 }}><span className="dot" style={{ background: c.color }} /><Link to={`/classes/${c.id}`} className="mono" style={{ fontWeight: 600 }}>{c.code}</Link></span>{c.name && <div className="faint xs">{c.name}</div>}</td>
+                    <td><span className="row" style={{ gap: 8 }}><span className="dot" style={{ background: c.color }} /><Link to={`/classes/${c.id}`} className="mono" style={{ fontWeight: 600 }}>{c.code}</Link></span>{(c.name || classTag(c.year_level, c.promotion)) && <div className="faint xs">{[classTag(c.year_level, c.promotion), c.name].filter(Boolean).join(' · ')}</div>}</td>
                     <td>{c.course_name}</td>
                     <td className="mono small"><D date={c.start_date} /></td>
                     <td className="small">{c.meetings.length ? meetingText(c.meetings, lang) : <span className="faint">No meeting times</span>}</td>

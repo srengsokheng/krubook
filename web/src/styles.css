@@ -166,6 +166,12 @@ p { margin: 0; }
 .ledger > li:first-child { border-top: 0; }
 .ledger .grow { flex: 1; min-width: 0; }
 .ledger .when { font-family: var(--font-data); font-size: var(--fs-sm); color: var(--ink-2); min-width: 92px; font-variant-numeric: tabular-nums; }
+.today-list .today-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.today-list .when { min-width: 0; }
+.today-list .today-title { gap: 8px; flex-wrap: wrap; row-gap: 4px; }
+.today-list .today-actions { gap: 8px; flex-wrap: wrap; }
+.room-tag { font-family: var(--font-data); font-size: var(--fs-sm); font-weight: 600; color: var(--ink); background: var(--surface-2); border: 1px solid var(--rule-strong); border-radius: 6px; padding: 1px 7px; line-height: 1.5; }
+.room-tag::before { content: 'Room '; font-weight: 400; color: var(--ink-3); }
 
 /* Summary strip: plain figures separated by rules, not cards */
 .figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); background: var(--surface); border: 1px solid var(--rule); border-radius: var(--r-md); }

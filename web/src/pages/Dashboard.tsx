@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useApi } from '../api.ts';
 import { useI18n } from '../i18n.tsx';
-import { D, Empty, ErrorNote, Icon, Kind, Loading, MaterialStatus, money, PayMonth, plural, ProgressPill, SessionStatus } from '../ui.tsx';
+import { classTag, D, Empty, ErrorNote, Icon, Kind, Loading, MaterialStatus, money, PayMonth, plural, ProgressPill, SessionStatus } from '../ui.tsx';
 import { formatDate } from '../../../shared/dates.ts';
 import { CheckIn } from '../CheckIn.tsx';
 
@@ -41,22 +41,36 @@ export function Dashboard() {
           <section className="panel">
             <div className="panel-head"><h2>{t('Teaching today')}</h2></div>
             {d.todays.length ? (
-              <ul className="ledger">
-                {d.todays.map((s: any) => (
-                  <li key={s.id}>
-                    <span className="swatch" style={{ background: s.color }} />
-                    <span className="when">{s.start}–{s.end}</span>
-                    <div className="grow stack" style={{ gap: 4 }}>
-                      <div className="row"><Link to={`/classes/${s.classId}`} className="mono" style={{ fontWeight: 600 }}>{s.code}</Link><Kind kind={s.kind} />{s.status !== 'planned' && <SessionStatus status={s.status} />}{s.checkpoint && <span className="marker small">{s.checkpoint}</span>}</div>
-                      <div className="small muted">{s.part ? partLabel(s.part) : s.note ?? s.activity.replace('_', ' ')}</div>
-                      {s.materials.some((x: any) => x.status !== 'ready') && <div className="row small">{s.materials.filter((x: any) => x.status !== 'ready').map((x: any) => <span key={x.id} className="row" style={{ gap: 4 }}>{x.title} <MaterialStatus status={x.status} /></span>)}</div>}
-                    </div>
-                    <div className="row" style={{ gap: 6, justifyContent: 'flex-end' }}>
-                      {(s.status === 'planned' || s.status === 'completed') && <CheckIn sessionId={s.id} start={s.start} date={s.date} today={d.today} value={s.checkin} />}
-                      {s.status === 'planned' && <Link className="btn sm" to={`/classes/${s.classId}/plan?session=${s.id}`}>{t('Mark taught')}</Link>}
-                    </div>
-                  </li>
-                ))}
+              <ul className="ledger today-list">
+                {d.todays.map((s: any) => {
+                  const tag = classTag(s.yearLevel, s.promotion);
+                  return (
+                    <li key={s.id}>
+                      <span className="swatch" style={{ background: s.color }} />
+                      <div className="grow stack" style={{ gap: 6 }}>
+                        <div className="today-top">
+                          <span className="when">{s.start}–{s.end}</span>
+                          {s.room && <span className="room-tag" title="Room">{s.room}</span>}
+                        </div>
+                        <div className="row today-title">
+                          <Link to={`/classes/${s.classId}`} className="mono" style={{ fontWeight: 600 }}>{s.code}</Link>
+                          {tag && <span className="faint small">{tag}</span>}
+                          <Kind kind={s.kind} />
+                          {s.status !== 'planned' && <SessionStatus status={s.status} />}
+                          {s.checkpoint && <span className="marker small">{s.checkpoint}</span>}
+                        </div>
+                        <div className="small muted">{s.part ? partLabel(s.part) : s.note ?? s.activity.replace('_', ' ')}</div>
+                        {s.materials.some((x: any) => x.status !== 'ready') && <div className="row small">{s.materials.filter((x: any) => x.status !== 'ready').map((x: any) => <span key={x.id} className="row" style={{ gap: 4 }}>{x.title} <MaterialStatus status={x.status} /></span>)}</div>}
+                        {(s.status === 'planned' || s.status === 'completed') && (
+                          <div className="row today-actions">
+                            <CheckIn sessionId={s.id} start={s.start} date={s.date} today={d.today} value={s.checkin} />
+                            {s.status === 'planned' && <Link className="btn sm" to={`/classes/${s.classId}/plan?session=${s.id}`}>{t('Mark taught')}</Link>}
+                          </div>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             ) : <Empty title="Nothing scheduled today">{d.next ? <>Next: {d.next.code} on <D date={d.next.date} />.</> : 'Generate a term plan for a class to fill the timetable.'}</Empty>}
           </section>

@@ -205,6 +205,34 @@ test.describe('signed in', () => {
     await expect(page.getByRole('button', { name: 'Check in' }).first()).toBeVisible();
   });
 
+  test('teaching today: each class shows its room, year and promotion, and fits a phone screen', async ({ page }) => {
+    await page.goto('/');
+    const first = page.locator('.today-list > li').first();
+    const href = await first.locator('a.mono').first().getAttribute('href');
+    const code = (await first.locator('a.mono').first().textContent())!.trim();
+    await page.goto(`${href}/setup`);
+    await page.locator('#s-year').selectOption('1');
+    await page.locator('#s-promo').fill('88');
+    await page.getByRole('button', { name: 'Save details' }).click();
+    await expect(page.getByText('Class saved')).toBeVisible();
+    const rooms = page.locator('.meeting-row input[aria-label="Room"]');
+    for (let i = 0; i < await rooms.count(); i++) await rooms.nth(i).fill('2C');
+    await page.getByRole('button', { name: 'Save meeting times' }).click();
+    await expect(page.getByText('Meeting times saved')).toBeVisible();
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+    const row = page.locator('.today-list > li', { hasText: code }).first();
+    await expect(row.getByText('Year 1 · P88')).toBeVisible();
+    await expect(row.locator('.room-tag')).toHaveText('2C');
+    // Nothing in the row is squeezed into a narrow column: the lesson line is as wide as the row's text.
+    const rowBox = (await row.locator('.grow').first().boundingBox())!;
+    const lessonBox = (await row.locator('.small.muted').first().boundingBox())!;
+    expect(lessonBox.width).toBeGreaterThan(rowBox.width * 0.6);
+    const pageWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+    expect(pageWidth).toBeLessThanOrEqual(390);
+  });
+
   test('update from Excel: dropping a workbook previews the changes without saving', async ({ page }) => {
     await page.goto('/import');
     await page.getByLabel('Workbook file').setInputFiles('e2e-results/workbook.xlsx'); // written by e2e/server.ts
